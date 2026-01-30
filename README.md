@@ -10,15 +10,38 @@ Custom Claude Code skills for personal use.
 
 ## Usage
 
-Add this repo to `~/.haoshoku.json`:
+### Option 1: With Haoshoku (Recommended)
+
+Install [haoshoku](https://www.npmjs.com/package/haoshoku) and add this repo to `~/.haoshoku.json`:
+
+```bash
+npm install -g haoshoku
+```
 
 ```json
 {
   "skillSources": [
-    "https://github.com/xzat/claude-skills.git",
+    "https://github.com/axatbhardwaj/claude-skills.git",
     "https://github.com/solatis/claude-config.git"
   ]
 }
 ```
 
-Then run `haoshoku --skills` to sync skills.
+Then sync skills:
+
+```bash
+haoshoku --skills
+```
+
+### Option 2: Manual Copy
+
+Clone this repo and copy the skills to your Claude config:
+
+```bash
+git clone https://github.com/axatbhardwaj/claude-skills.git
+cp -r claude-skills/skills/* ~/.claude/skills/
+```
+
+## License
+
+MIT
