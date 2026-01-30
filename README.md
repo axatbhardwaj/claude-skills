@@ -10,7 +10,9 @@ Custom Claude Code skills for personal use.
 
 ## Usage
 
-### Option 1: With Haoshoku (Recommended)
+### Option 1: With Haoshoku
+
+> **Note:** Haoshoku only supports CachyOS and Debian. For other distros, use Option 2.
 
 Install [haoshoku](https://www.npmjs.com/package/haoshoku) and add this repo to `~/.haoshoku.json`:
 
@@ -33,7 +35,7 @@ Then sync skills:
 haoshoku --skills
 ```
 
-### Option 2: Manual Copy
+### Option 2: Manual Copy (All Platforms)
 
 Clone this repo and copy the skills to your Claude config:
 
