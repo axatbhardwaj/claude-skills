@@ -4,34 +4,31 @@ Run tests and validate coverage gaps across workflow-based skills.
 
 ## Purpose
 
-Executes pytest test suite while detecting coverage gaps by comparing workflow registry against test files. Reports both test execution results and untested workflow steps.
+Orchestrates a four-step workflow that discovers skill modules, validates test coverage, runs pytest, and produces a structured report. Uses the instruction-based pattern where each step emits prompts that direct the LLM to perform actions using its tools.
 
 ## Architecture
 
-Four-step workflow with data flow:
-- Step 1 (Discover): Produces `workflow_registry` and `test_files[]`
-- Step 2 (Validate): Consumes `workflow_registry`, produces `coverage_gaps[]`
-- Step 3 (Execute): Produces `pytest_result` (exit_code, stdout, stderr)
-- Step 4 (Report): Consumes `coverage_gaps[]` and `pytest_result`, aggregates into XML
+Instruction-based workflow using `format_step()`:
+- Step 1 (Discover): LLM globs for test files and skill modules
+- Step 2 (Validate): LLM greps test files for workflow references, builds coverage table
+- Step 3 (Execute): LLM runs `pytest tests/ -v` via bash
+- Step 4 (Report): LLM aggregates results into structured report
 
-Step 4 always runs even if Step 3 fails to capture partial results.
+Each step outputs instructions via `format_step(body, next_cmd, title)`. The script contains no execution logic — all work is done by the LLM following the emitted instructions.
 
 ## Workflow
 
-Four-step process ensures comprehensive validation:
-
-1. **Discover**: Glob test files from `scripts/tests/`, import all skill modules to populate workflow registry
-2. **Validate**: Build expected coverage map from registry, scan test files for workflow invocations, identify steps without ANY test coverage
-3. **Execute**: Invoke pytest subprocess with 30s timeout, capture stdout/stderr/exit code
-4. **Report**: Aggregate test results and coverage gaps into XML output (runs even if execution fails)
+1. **Discover**: Glob test files from `scripts/tests/`, glob skill modules from `scripts/skills/`, list discovered files
+2. **Validate**: Grep test files for workflow name references, build coverage summary table, identify gaps
+3. **Execute**: Run pytest subprocess, capture output and exit code
+4. **Report**: Combine all results into structured report with recommendations (runs even if execution encountered errors)
 
 ## Coverage Algorithm
 
-Coverage detection uses static analysis:
-- Expected coverage derived from `get_workflow_registry()` after importing all skills
-- Actual coverage determined by scanning test file content for workflow names
-- Parametrized tests counted as single coverage entry
-- Gap reported only when step has ZERO test coverage (not partial)
+Coverage detection uses the LLM's search tools:
+- Skill modules discovered by globbing `scripts/skills/*/[!_]*.py`
+- Test coverage determined by grepping test files for workflow names
+- Gap reported when a skill has ZERO test file references
 
 ## When to Use
 
@@ -42,21 +39,15 @@ Invoke when:
 
 ## Why This Structure
 
-Follows Workflow pattern like `refactor/` and `planner/` skills. Deviation would require modifying test infrastructure which expects:
-- Single entry point with `Workflow` registration at module load
-- Frozen `StepDef` dataclasses with explicit handlers
-- XML output via `XMLRenderer` for QR agent compatibility
-- Path resolution supports invocation from any directory
+Follows the instruction-based workflow pattern used by `deepthink/`, `planner/`, and other skills:
+- `format_step()` as sole output assembler
+- `StepDef` / `Workflow` metadata for discovery
+- CLI step invocation via `python3 -m skills.testing.testing --step N`
+- No execution engine, no handlers — the LLM does the work
 
 ## Invariants
 
-- All skill modules imported before registry query (Step 1 guarantee)
-- Test file discovery uses same paths as pytest.ini `testpaths`
-- Report step always executes regardless of prior failures
-- Coverage gaps computed before test execution (static analysis)
-
-## Tradeoffs
-
-- **Static coverage only**: Simpler than runtime but misses dynamic discovery
-- **No test generation**: Focused scope but requires manual test authoring
-- **Single pytest invocation**: Cannot parallelize but simpler error handling
+- All four steps always use `format_step()` for output
+- Step 4 (Report) always runs regardless of Step 3 outcome
+- Invalid step numbers produce an error via `sys.exit()`
+- `WORKFLOW` metadata matches the step registry for introspection consistency

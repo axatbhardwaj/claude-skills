@@ -9,12 +9,11 @@ When this skill activates, IMMEDIATELY invoke the script. The script IS the work
 
 ## Invocation
 
-<invoke working-dir=".claude/skills/scripts" cmd="python3 -m skills.testing.testing --step 1 --total-steps 4" />
+<invoke working-dir=".claude/skills/scripts" cmd="python3 -m skills.testing.testing --step 1" />
 
-| Argument        | Required | Description                        |
-| --------------- | -------- | ---------------------------------- |
-| `--step`        | Yes      | Current step (starts at 1)         |
-| `--total-steps` | Yes      | Total steps (4 for full workflow)  |
+| Argument   | Required | Description                |
+| ---------- | -------- | -------------------------- |
+| `--step`   | Yes      | Current step (1-4)         |
 
 Do NOT run pytest manually. Run the script and follow its output.
 
