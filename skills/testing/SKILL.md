@@ -11,8 +11,13 @@ When this skill activates, IMMEDIATELY invoke the script. The script IS the work
 
 <invoke working-dir=".claude/skills/scripts" cmd="python3 -m skills.testing.testing --step 1" />
 
-| Argument | Required | Description             |
-| -------- | -------- | ----------------------- |
-| `--step` | Yes      | Current step (1-7)      |
+If the user specifies a subdirectory to scope to (e.g., "only test the backend"):
+
+<invoke working-dir=".claude/skills/scripts" cmd="python3 -m skills.testing.testing --step 1 --target '<subdirectory>'" />
+
+| Argument   | Required | Description                                      |
+| ---------- | -------- | ------------------------------------------------ |
+| `--step`   | Yes      | Current step (1-7)                               |
+| `--target` | No       | Subdirectory to scope analysis to (e.g., backend) |
 
 Do NOT explore or analyze first. Run the script and follow its output.

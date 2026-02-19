@@ -194,22 +194,23 @@ PRESENT_INSTRUCTIONS = (
 # ============================================================================
 
 
-def build_next_command(step: int) -> str | None:
-    """Build invoke command for next step."""
+def build_next_command(step: int, target: str = "") -> str | None:
+    """Build invoke command for next step, threading --target if set."""
     base = f"python3 -m {MODULE_PATH}"
+    suffix = f" --target '{target}'" if target else ""
     if step == 1:
-        return f"{base} --step 2"
+        return f"{base} --step 2{suffix}"
     elif step == 2:
-        return f"{base} --step 3"
+        return f"{base} --step 3{suffix}"
     elif step == 3:
-        return f"{base} --step 4"
+        return f"{base} --step 4{suffix}"
     elif step == 4:
         # Conditional: depends on whether Green found confirmed issues
         return None  # handled specially in format_output
     elif step == 5:
-        return f"{base} --step 6"
+        return f"{base} --step 6{suffix}"
     elif step == 6:
-        return f"{base} --step 7"
+        return f"{base} --step 7{suffix}"
     elif step == 7:
         return None
     return None
@@ -241,7 +242,17 @@ DYNAMIC_STEPS = {
 # ============================================================================
 
 
-def format_output(step: int) -> str:
+def _scope_prefix(target: str) -> str:
+    """Build scope constraint prefix for prompts when --target is set."""
+    if not target:
+        return ""
+    return (
+        f"SCOPE CONSTRAINT: Only analyze files under `{target}/`. "
+        f"Ignore all source and test files outside this directory.\n\n"
+    )
+
+
+def format_output(step: int, target: str = "") -> str:
     """Format output for the given step.
 
     Static steps use format_step directly.
@@ -249,12 +260,14 @@ def format_output(step: int) -> str:
     Step 4 uses conditional branching (if_pass/if_fail).
     """
     base = f"python3 -m {MODULE_PATH}"
+    suffix = f" --target '{target}'" if target else ""
+    scope = _scope_prefix(target)
 
     if step in STATIC_STEPS:
         title, instructions = STATIC_STEPS[step]
-        next_cmd = build_next_command(step)
+        next_cmd = build_next_command(step, target)
         return format_step(
-            instructions, next_cmd or "", title=f"TESTING - {title}"
+            scope + instructions, next_cmd or "", title=f"TESTING - {title}"
         )
 
     elif step in DYNAMIC_STEPS:
@@ -262,7 +275,7 @@ def format_output(step: int) -> str:
         body = subagent_dispatch(
             agent_type=agent_type,
             command="",
-            prompt=instructions,
+            prompt=scope + instructions,
             model=model,
         )
 
@@ -271,11 +284,11 @@ def format_output(step: int) -> str:
             return format_step(
                 body,
                 title=f"TESTING - {title}",
-                if_pass=f"{base} --step 6",
-                if_fail=f"{base} --step 5",
+                if_pass=f"{base} --step 6{suffix}",
+                if_fail=f"{base} --step 5{suffix}",
             )
         else:
-            next_cmd = build_next_command(step)
+            next_cmd = build_next_command(step, target)
             return format_step(
                 body, next_cmd or "", title=f"TESTING - {title}"
             )
@@ -296,13 +309,15 @@ def main():
         epilog="Steps: detect (1) -> green (2) -> red (3) -> green (4) -> blue (5) -> green (6) -> present (7)",
     )
     parser.add_argument("--step", type=int, required=True)
+    parser.add_argument("--target", type=str, default="",
+                        help="Subdirectory to scope analysis to (e.g., backend/)")
 
     args = parser.parse_args()
 
     if args.step < 1 or args.step > 7:
         sys.exit("ERROR: --step must be 1-7")
 
-    print(format_output(args.step))
+    print(format_output(args.step, args.target.rstrip("/")))
 
 
 if __name__ == "__main__":
