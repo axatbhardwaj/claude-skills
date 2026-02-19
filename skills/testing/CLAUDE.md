@@ -1,9 +1,10 @@
-# Testing Skill
+# testing/
 
-Run tests and validate coverage gaps across workflow-based skills.
+Adversarial test coverage improvement skill. IMMEDIATELY invoke the script -- do NOT analyze first.
 
-| File               | What                                              | When                             |
-| ------------------ | ------------------------------------------------- | -------------------------------- |
-| SKILL.md           | Invocation command, workflow overview              | Invoking testing skill           |
-| README.md          | Coverage algorithm, design rationale, invariants   | Understanding skill architecture |
-| scripts/testing.py | 4-step instruction-based workflow                  | Implementation reference         |
+## Files
+
+| File                      | What             | When to read         |
+| ------------------------- | ---------------- | -------------------- |
+| `SKILL.md`                | Skill invocation | Using this skill     |
+| `scripts/testing.py`      | Complete workflow | Debugging behavior   |
