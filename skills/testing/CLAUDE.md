@@ -8,3 +8,4 @@ Adversarial test coverage improvement skill. IMMEDIATELY invoke the script -- do
 | ------------------------- | ---------------- | -------------------- |
 | `SKILL.md`                | Skill invocation | Using this skill     |
 | `scripts/testing.py`      | Complete workflow | Debugging behavior   |
+| `agents/`                 | Agent definitions | Installing skill     |

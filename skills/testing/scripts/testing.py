@@ -2,25 +2,26 @@
 """
 Testing — Adversarial Coverage Improvement.
 
-Seven-step workflow:
+Eight-step workflow:
   1:   DETECT - Identify test framework, conventions, directory structure
   2:   GREEN: COVERAGE - Analyze coverage gaps and rank by severity
-  3:   RED: BREAK IT - Find edge cases, boundary conditions, error handling gaps
+  3:   RED: ATTACK - Find vulnerabilities via structured attack hypotheses
   4:   GREEN: VERIFY - Verify Red's claims, filter false positives
   5:   BLUE: WRITE TESTS - Write test cases for confirmed issues
-  6:   GREEN: FINAL REVIEW - Review test quality, propose fix plans
-  7:   PRESENT RESULTS - Summarize findings to user
+  6:   QUALITY REVIEW - Score test quality before final review
+  7:   GREEN: FINAL REVIEW - Review test quality, propose fix plans
+  8:   PRESENT RESULTS - Summarize findings to user
 
 Adversarial red/blue/green team model:
   - Green (architect): analyzes, verifies, reviews
-  - Red (general-purpose): attacks, finds vulnerabilities
+  - Red (adversarial-analyst): attacks via structured hypotheses
   - Blue (developer): writes tests for confirmed issues
+  - Quality (quality-reviewer): scores test quality
 """
 
 import argparse
 import sys
-
-from skills.lib.workflow.prompts import format_step, subagent_dispatch
+from pathlib import Path
 
 
 # ============================================================================
@@ -28,6 +29,109 @@ from skills.lib.workflow.prompts import format_step, subagent_dispatch
 # ============================================================================
 
 MODULE_PATH = "skills.testing.testing"
+
+# Installed: scripts/skills/testing/testing.py
+# .parent(testing/) -> .parent(skills/) -> .parent(scripts/)
+SKILLS_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+# ============================================================================
+# INLINED DISPATCH PRIMITIVES
+# ============================================================================
+# From skills.lib.workflow.prompts — inlined to remove shared library dependency.
+
+TASK_TOOL_INSTRUCTION = """\
+ACTION: Use the Task tool to spawn this agent.
+
+Task tool parameters:
+  - subagent_type: {agent_type}
+  - model: {model_param}
+  - prompt: Include the task and invoke command below
+  - run_in_background: NEVER set this. Always omit or set false.
+    Background agents return full session transcripts via TaskOutput,
+    flooding the orchestrator context window. Foreground agents return
+    only the agent's final text response."""
+
+SUB_AGENT_INVOKE = """\
+MANDATORY INVOKE BLOCK - Copy VERBATIM into the agent's prompt:
+================================================================================
+FIRST ACTION REQUIRED: Run this command via Bash tool before any other response.
+Do NOT skip. Do NOT produce analysis first. Execute this command IMMEDIATELY.
+
+Working directory: {working_dir}
+Command: {cmd}
+================================================================================
+CRITICAL: Copy the block above EXACTLY. Do not paraphrase or summarize.
+The subagent needs "FIRST ACTION REQUIRED" to know it must run the command."""
+
+SUBAGENT_TEMPLATE = """\
+DISPATCH SUB-AGENT
+==================
+
+{task_tool_block}
+
+TASK FOR THE SUB-AGENT:
+{task_section}
+
+{invoke_block}
+
+After the sub-agent returns, continue with the next workflow step."""
+
+
+def task_tool_instruction(agent_type: str, model: str | None) -> str:
+    """Tell main agent how to spawn sub-agent via Task tool."""
+    model_param = model if model else "omit (use default)"
+    return TASK_TOOL_INSTRUCTION.format(agent_type=agent_type, model_param=model_param)
+
+
+def sub_agent_invoke(cmd: str) -> str:
+    """Tell sub-agent what command to run after spawning."""
+    return SUB_AGENT_INVOKE.format(working_dir=SKILLS_DIR, cmd=cmd)
+
+
+def subagent_dispatch(
+    agent_type: str,
+    command: str,
+    prompt: str = "",
+    model: str | None = None,
+) -> str:
+    """Generate prompt for single sub-agent dispatch."""
+    task_section = prompt if prompt else "(No additional task - agent follows invoke command)"
+    return SUBAGENT_TEMPLATE.format(
+        task_tool_block=task_tool_instruction(agent_type, model),
+        task_section=task_section,
+        invoke_block=sub_agent_invoke(command),
+    )
+
+
+def format_step(body: str, next_cmd: str = "", title: str = "",
+                if_pass: str = "", if_fail: str = "") -> str:
+    """Assemble complete workflow step: title + body + invoke directive."""
+    if title:
+        header = f"{title}\n{'=' * len(title)}\n\n"
+        body = header + body
+
+    if if_pass and if_fail:
+        invoke = (
+            f"NEXT STEP (MANDATORY -- execute exactly one):\n"
+            f"    Working directory: {SKILLS_DIR}\n"
+            f"    ALL agents returned PASS  ->  {if_pass}\n"
+            f"    ANY agent returned FAIL   ->  {if_fail}\n\n"
+            f"This is a mechanical routing decision. Do not interpret, summarize, "
+            f"or assess the results.\n"
+            f"Count PASS vs FAIL, then execute the matching command."
+        )
+        return f"{body}\n\n{invoke}"
+    elif next_cmd:
+        invoke = (
+            f"NEXT STEP:\n"
+            f"    Working directory: {SKILLS_DIR}\n"
+            f"    Command: {next_cmd}\n\n"
+            f"Execute this command now."
+        )
+        return f"{body}\n\n{invoke}"
+    else:
+        return f"{body}\n\nWORKFLOW COMPLETE - Return the output from the step above. Do not summarize."
 
 
 # ============================================================================
@@ -77,25 +181,29 @@ COVERAGE_INSTRUCTIONS = (
     "The orchestrator will save your output as COVERAGE_GAPS."
 )
 
-# --- STEP 3: RED - BREAK IT ------------------------------------------------
+# --- STEP 3: RED - ATTACK --------------------------------------------------
 
 RED_INSTRUCTIONS = (
-    "You are RED TEAM (adversarial attacker role).\n"
+    "You are RED TEAM (adversarial analyst role).\n"
     "\n"
     "The orchestrator will pass PROJECT_CONTEXT and COVERAGE_GAPS in your "
     "prompt.\n"
     "\n"
     "Your task:\n"
     "- Target the untested areas Green identified\n"
-    "- Find edge cases, boundary conditions, error handling gaps\n"
-    "- Try invalid inputs, type confusion, missing validation, race "
-    "conditions\n"
-    "- Use Bash to run code in sandbox where possible — attempt actual "
-    "crashes, panics, unhandled exceptions\n"
-    "- For each finding, provide concrete reproduction steps (exact inputs, "
-    "commands, expected vs actual behavior)\n"
-    "- Output a numbered vulnerability list, each with: description, "
-    "severity, reproduction steps, affected code location\n"
+    "- Systematically probe these four categories:\n"
+    "  1. Boundary Failures: off-by-one, empty/max inputs, type boundaries\n"
+    "  2. State & Concurrency: race conditions, stale state, resource exhaustion\n"
+    "  3. Error Handling Gaps: unhandled exceptions, silent failures, missing cleanup\n"
+    "  4. Bypass Logic: validation bypass, business rule violations, encoding tricks\n"
+    "- For each finding, produce a structured Attack Hypothesis:\n"
+    "    ATTACK HYPOTHESIS #N\n"
+    "      Target: [specific function/module/endpoint]\n"
+    "      Vector: [exact attack approach]\n"
+    "      Expected Failure: [what breaks and how]\n"
+    "      Severity: [CRITICAL | HIGH | MEDIUM | LOW]\n"
+    "      Category: [Boundary | State | ErrorHandling | Bypass]\n"
+    "- Do NOT write tests or fixes — output hypotheses only\n"
     "\n"
     "The orchestrator will save your output as RED_FINDINGS."
 )
@@ -109,7 +217,7 @@ VERIFY_INSTRUCTIONS = (
     "prompt.\n"
     "\n"
     "Your task:\n"
-    "- Evaluate each of Red's claims architecturally\n"
+    "- Evaluate each of Red's Attack Hypotheses architecturally\n"
     "- Read the actual source code for each affected location\n"
     "- Classify each finding as: CONFIRMED BUG, DESIGN LIMITATION, or "
     "FALSE POSITIVE\n"
@@ -151,37 +259,61 @@ BLUE_INSTRUCTIONS = (
     "The orchestrator will save your output as TEST_RESULTS."
 )
 
-# --- STEP 6: GREEN - FINAL REVIEW ------------------------------------------
+# --- STEP 6: QUALITY REVIEW ------------------------------------------------
 
-REVIEW_INSTRUCTIONS = (
-    "You are GREEN TEAM (architect role) performing final review.\n"
+QUALITY_REVIEW_INSTRUCTIONS = (
+    "You are reviewing the quality of Blue Team's tests.\n"
     "\n"
     "The orchestrator will pass CONFIRMED_ISSUES and TEST_RESULTS in your "
     "prompt.\n"
     "\n"
     "Your task:\n"
-    "- Review the quality of Blue's tests — are they meaningful? Do they "
-    "actually test the confirmed issue?\n"
+    "- For each test, assess whether it meaningfully covers the confirmed issue\n"
+    "- Check for: correct assertions, edge case coverage, no false passes, "
+    "proper isolation\n"
+    "- Score each test as: STRONG (covers issue thoroughly), ADEQUATE "
+    "(covers core case), or WEAK (superficial or incorrect)\n"
+    "- For WEAK tests, explain what's missing and what would make it STRONG\n"
+    "- Output a quality scorecard with per-test scores and an overall "
+    "assessment\n"
+    "\n"
+    "The orchestrator will save your output as QUALITY_REVIEW."
+)
+
+# --- STEP 7: GREEN - FINAL REVIEW ------------------------------------------
+
+REVIEW_INSTRUCTIONS = (
+    "You are GREEN TEAM (architect role) performing final review.\n"
+    "\n"
+    "The orchestrator will pass CONFIRMED_ISSUES, TEST_RESULTS, and "
+    "QUALITY_REVIEW in your prompt.\n"
+    "\n"
+    "Your task:\n"
+    "- Incorporate the quality reviewer's scores into your assessment\n"
+    "- For WEAK-scored tests, flag them for rewrite\n"
     "- For each confirmed bug, propose a fix plan: what to change, where, "
     "and why (do NOT implement fixes)\n"
     "- Assess overall test suite improvement from this run\n"
     "- Output a final report with: confirmed issues summary, test quality "
-    "assessment, and proposed fix plans\n"
+    "assessment (incorporating quality scores), and proposed fix plans\n"
     "\n"
     "The orchestrator will save your output as FINAL_REPORT."
 )
 
-# --- STEP 7: PRESENT RESULTS -----------------------------------------------
+# --- STEP 8: PRESENT RESULTS -----------------------------------------------
 
 PRESENT_INSTRUCTIONS = (
     "Summarize the full adversarial testing pipeline results to the user:\n"
     "\n"
     "1. **Coverage gaps found**: count from Step 2 (COVERAGE_GAPS)\n"
-    "2. **Red team findings**: count from Step 3 (RED_FINDINGS)\n"
+    "2. **Red team findings**: count from Step 3 (RED_FINDINGS), note Attack "
+    "Hypothesis format used\n"
     "3. **Confirmed after verification**: count from Step 4 — note how many "
     "false positives were filtered\n"
     "4. **Tests written**: file paths from Step 5, with pass/fail status\n"
-    "5. **Proposed fixes**: from Step 6, for user approval before "
+    "5. **Quality scores**: from Step 6, per-test STRONG/ADEQUATE/WEAK "
+    "ratings\n"
+    "6. **Proposed fixes**: from Step 7, for user approval before "
     "implementing\n"
     "\n"
     "Present this as a clear, actionable summary. The user decides what to "
@@ -205,14 +337,15 @@ def build_next_command(step: int, target: str = "") -> str | None:
     elif step == 3:
         return f"{base} --step 4{suffix}"
     elif step == 4:
-        # Conditional: depends on whether Green found confirmed issues
-        return None  # handled specially in format_output
+        return None  # conditional branching handled in format_output
     elif step == 5:
         return f"{base} --step 6{suffix}"
     elif step == 6:
         return f"{base} --step 7{suffix}"
     elif step == 7:
-        return None
+        return f"{base} --step 8{suffix}"
+    elif step == 8:
+        return None  # terminal
     return None
 
 
@@ -223,17 +356,18 @@ def build_next_command(step: int, target: str = "") -> str | None:
 # Static steps: (title, instructions) tuples for steps with constant content
 STATIC_STEPS = {
     1: ("Detect", DETECT_INSTRUCTIONS),
-    7: ("Present Results", PRESENT_INSTRUCTIONS),
+    8: ("Present Results", PRESENT_INSTRUCTIONS),
 }
 
-# Dynamic steps: functions/dispatchers that compute (title, body) based on parameters
-# Steps 2-6 use subagent_dispatch, producing dispatch blocks as body content
+# Dynamic steps: (title, agent_type, model, instructions)
+# Steps 2-7 use subagent_dispatch, producing dispatch blocks as body content
 DYNAMIC_STEPS = {
     2: ("Green: Coverage Analysis", "architect", "opus", COVERAGE_INSTRUCTIONS),
-    3: ("Red: Break It", "general-purpose", "sonnet", RED_INSTRUCTIONS),
+    3: ("Red: Attack", "adversarial-analyst", "sonnet", RED_INSTRUCTIONS),
     4: ("Green: Verify", "architect", "opus", VERIFY_INSTRUCTIONS),
     5: ("Blue: Write Tests", "developer", "sonnet", BLUE_INSTRUCTIONS),
-    6: ("Green: Final Review", "architect", "opus", REVIEW_INSTRUCTIONS),
+    6: ("Quality Review", "quality-reviewer", "sonnet", QUALITY_REVIEW_INSTRUCTIONS),
+    7: ("Green: Final Review", "architect", "opus", REVIEW_INSTRUCTIONS),
 }
 
 
@@ -280,11 +414,11 @@ def format_output(step: int, target: str = "") -> str:
         )
 
         if step == 4:
-            # Conditional branching: skip to step 6 if no confirmed issues
+            # Conditional: PASS skips to step 7, FAIL continues to step 5
             return format_step(
                 body,
                 title=f"TESTING - {title}",
-                if_pass=f"{base} --step 6{suffix}",
+                if_pass=f"{base} --step 7{suffix}",
                 if_fail=f"{base} --step 5{suffix}",
             )
         else:
@@ -306,7 +440,10 @@ def main():
     """Entry point for testing workflow."""
     parser = argparse.ArgumentParser(
         description="Testing - Adversarial coverage improvement workflow",
-        epilog="Steps: detect (1) -> green (2) -> red (3) -> green (4) -> blue (5) -> green (6) -> present (7)",
+        epilog=(
+            "Steps: detect (1) -> green (2) -> red (3) -> green (4) "
+            "-> blue (5) -> quality (6) -> green (7) -> present (8)"
+        ),
     )
     parser.add_argument("--step", type=int, required=True)
     parser.add_argument("--target", type=str, default="",
@@ -314,8 +451,8 @@ def main():
 
     args = parser.parse_args()
 
-    if args.step < 1 or args.step > 7:
-        sys.exit("ERROR: --step must be 1-7")
+    if args.step < 1 or args.step > 8:
+        sys.exit("ERROR: --step must be 1-8")
 
     print(format_output(args.step, args.target.rstrip("/")))
 

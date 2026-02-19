@@ -17,7 +17,15 @@ If the user specifies a subdirectory to scope to (e.g., "only test the backend")
 
 | Argument   | Required | Description                                      |
 | ---------- | -------- | ------------------------------------------------ |
-| `--step`   | Yes      | Current step (1-7)                               |
+| `--step`   | Yes      | Current step (1-8)                               |
 | `--target` | No       | Subdirectory to scope analysis to (e.g., backend) |
 
 Do NOT explore or analyze first. Run the script and follow its output.
+
+## Install
+
+This skill dispatches work to custom agent types (`architect`, `adversarial-analyst`, `developer`, `quality-reviewer`). Copy the files from `agents/` to your `~/.claude/agents/` directory:
+
+```sh
+cp agents/*.md ~/.claude/agents/
+```
