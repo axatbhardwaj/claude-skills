@@ -2,15 +2,19 @@
 """
 Testing — Adversarial Coverage Improvement.
 
-Eight-step workflow:
+Eight-step workflow with feedback loops:
   1:   DETECT - Identify test framework, conventions, directory structure
   2:   GREEN: COVERAGE - Analyze coverage gaps and rank by severity
   3:   RED: ATTACK - Find vulnerabilities via structured attack hypotheses
   4:   GREEN: VERIFY - Verify Red's claims, filter false positives
   5:   BLUE: WRITE TESTS - Write test cases for confirmed issues
-  6:   QUALITY REVIEW - Score test quality before final review
-  7:   GREEN: FINAL REVIEW - Review test quality, propose fix plans
+  6:   QUALITY REVIEW - Score test quality (FAIL loops back to 5)
+  7:   GREEN: FINAL REVIEW - Review + anti-slop gate (FAIL loops back to 5)
   8:   PRESENT RESULTS - Summarize findings to user
+
+Steps 6 and 7 are quality gates with PASS/FAIL verdicts.
+On FAIL, the workflow loops back to step 5 (Blue) with attempt+1.
+Max 2 retries (attempt 3 forces forward to prevent infinite loops).
 
 Adversarial red/blue/green team model:
   - Green (architect): analyzes, verifies, reviews
@@ -256,6 +260,10 @@ BLUE_INSTRUCTIONS = (
     "- Output: list of test files written, what each test covers, and "
     "pass/fail results\n"
     "\n"
+    "If the orchestrator passes QUALITY_REVIEW or FINAL_REPORT with feedback "
+    "on weak, failing, or unnecessary tests, address the reviewer's feedback: "
+    "rewrite weak tests, remove unnecessary ones, keep strong tests unchanged.\n"
+    "\n"
     "The orchestrator will save your output as TEST_RESULTS."
 )
 
@@ -277,7 +285,11 @@ QUALITY_REVIEW_INSTRUCTIONS = (
     "- Output a quality scorecard with per-test scores and an overall "
     "assessment\n"
     "\n"
-    "The orchestrator will save your output as QUALITY_REVIEW."
+    "The orchestrator will save your output as QUALITY_REVIEW.\n"
+    "\n"
+    "IMPORTANT: End your response with one of these verdicts:\n"
+    "  VERDICT: PASS — if all tests score STRONG or ADEQUATE\n"
+    "  VERDICT: FAIL — if any test scores WEAK"
 )
 
 # --- STEP 7: GREEN - FINAL REVIEW ------------------------------------------
@@ -291,13 +303,24 @@ REVIEW_INSTRUCTIONS = (
     "Your task:\n"
     "- Incorporate the quality reviewer's scores into your assessment\n"
     "- For WEAK-scored tests, flag them for rewrite\n"
+    "- Evaluate whether each test is actually necessary — reject tests that:\n"
+    "  - Duplicate existing coverage\n"
+    "  - Test trivial/obvious behavior that doesn't need a test\n"
+    "  - Are overly defensive or test implementation details rather than behavior\n"
+    "- Mark unnecessary tests for REMOVAL in the final report\n"
     "- For each confirmed bug, propose a fix plan: what to change, where, "
     "and why (do NOT implement fixes)\n"
     "- Assess overall test suite improvement from this run\n"
     "- Output a final report with: confirmed issues summary, test quality "
     "assessment (incorporating quality scores), and proposed fix plans\n"
     "\n"
-    "The orchestrator will save your output as FINAL_REPORT."
+    "The orchestrator will save your output as FINAL_REPORT.\n"
+    "\n"
+    "IMPORTANT: End your response with one of these verdicts:\n"
+    "  VERDICT: PASS — if all tests are necessary, acceptable quality, "
+    "and fix plans are complete\n"
+    "  VERDICT: FAIL — if any tests should be removed, rewritten, or "
+    "critical issues remain"
 )
 
 # --- STEP 8: PRESENT RESULTS -----------------------------------------------
@@ -326,10 +349,11 @@ PRESENT_INSTRUCTIONS = (
 # ============================================================================
 
 
-def build_next_command(step: int, target: str = "") -> str | None:
-    """Build invoke command for next step, threading --target if set."""
+def build_next_command(step: int, target: str = "", attempt: int = 1) -> str | None:
+    """Build invoke command for next step, threading --target and --attempt."""
     base = f"python3 -m {MODULE_PATH}"
     suffix = f" --target '{target}'" if target else ""
+    suffix += f" --attempt {attempt}" if attempt > 1 else ""
     if step == 1:
         return f"{base} --step 2{suffix}"
     elif step == 2:
@@ -341,9 +365,9 @@ def build_next_command(step: int, target: str = "") -> str | None:
     elif step == 5:
         return f"{base} --step 6{suffix}"
     elif step == 6:
-        return f"{base} --step 7{suffix}"
+        return None if attempt <= 2 else f"{base} --step 7{suffix}"
     elif step == 7:
-        return f"{base} --step 8{suffix}"
+        return None if attempt <= 2 else f"{base} --step 8{suffix}"
     elif step == 8:
         return None  # terminal
     return None
@@ -386,20 +410,23 @@ def _scope_prefix(target: str) -> str:
     )
 
 
-def format_output(step: int, target: str = "") -> str:
+def format_output(step: int, target: str = "", attempt: int = 1) -> str:
     """Format output for the given step.
 
     Static steps use format_step directly.
     Dynamic steps wrap subagent_dispatch output in format_step.
-    Step 4 uses conditional branching (if_pass/if_fail).
+    Steps 4, 6, 7 use conditional branching (if_pass/if_fail).
+    Steps 6, 7 force forward when attempt > 2 (max retries exceeded).
     """
     base = f"python3 -m {MODULE_PATH}"
     suffix = f" --target '{target}'" if target else ""
+    bump = f" --attempt {attempt + 1}" if attempt <= 2 else ""
+    attempt_suffix = f" --attempt {attempt}" if attempt > 1 else ""
     scope = _scope_prefix(target)
 
     if step in STATIC_STEPS:
         title, instructions = STATIC_STEPS[step]
-        next_cmd = build_next_command(step, target)
+        next_cmd = build_next_command(step, target, attempt)
         return format_step(
             scope + instructions, next_cmd or "", title=f"TESTING - {title}"
         )
@@ -418,11 +445,37 @@ def format_output(step: int, target: str = "") -> str:
             return format_step(
                 body,
                 title=f"TESTING - {title}",
-                if_pass=f"{base} --step 7{suffix}",
-                if_fail=f"{base} --step 5{suffix}",
+                if_pass=f"{base} --step 7{suffix}{attempt_suffix}",
+                if_fail=f"{base} --step 5{suffix}{attempt_suffix}",
             )
+        elif step == 6:
+            if attempt <= 2:
+                return format_step(
+                    body,
+                    title=f"TESTING - {title}",
+                    if_pass=f"{base} --step 7{suffix}{attempt_suffix}",
+                    if_fail=f"{base} --step 5{suffix}{bump}",
+                )
+            else:
+                next_cmd = build_next_command(step, target, attempt)
+                return format_step(
+                    body, next_cmd or "", title=f"TESTING - {title}"
+                )
+        elif step == 7:
+            if attempt <= 2:
+                return format_step(
+                    body,
+                    title=f"TESTING - {title}",
+                    if_pass=f"{base} --step 8{suffix}{attempt_suffix}",
+                    if_fail=f"{base} --step 5{suffix}{bump}",
+                )
+            else:
+                next_cmd = build_next_command(step, target, attempt)
+                return format_step(
+                    body, next_cmd or "", title=f"TESTING - {title}"
+                )
         else:
-            next_cmd = build_next_command(step, target)
+            next_cmd = build_next_command(step, target, attempt)
             return format_step(
                 body, next_cmd or "", title=f"TESTING - {title}"
             )
@@ -441,20 +494,23 @@ def main():
     parser = argparse.ArgumentParser(
         description="Testing - Adversarial coverage improvement workflow",
         epilog=(
-            "Steps: detect (1) -> green (2) -> red (3) -> green (4) "
-            "-> blue (5) -> quality (6) -> green (7) -> present (8)"
+            "Steps: detect (1) -> green (2) -> red (3) -> verify (4) "
+            "-> blue (5) -> QR (6) -> final (7) -> present (8). "
+            "Steps 6 and 7 loop back to 5 on FAIL (max 2 retries)."
         ),
     )
     parser.add_argument("--step", type=int, required=True)
     parser.add_argument("--target", type=str, default="",
                         help="Subdirectory to scope analysis to (e.g., backend/)")
+    parser.add_argument("--attempt", type=int, default=1,
+                        help="Retry attempt number (default: 1, max useful: 3)")
 
     args = parser.parse_args()
 
     if args.step < 1 or args.step > 8:
         sys.exit("ERROR: --step must be 1-8")
 
-    print(format_output(args.step, args.target.rstrip("/")))
+    print(format_output(args.step, args.target.rstrip("/"), args.attempt))
 
 
 if __name__ == "__main__":
