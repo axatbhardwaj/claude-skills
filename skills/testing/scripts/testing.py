@@ -2,23 +2,25 @@
 """
 Testing — Adversarial Coverage Improvement.
 
-Eight-step workflow with feedback loops:
+Nine-step workflow with feedback loops:
   1:   DETECT - Identify test framework, conventions, directory structure
   2:   GREEN: COVERAGE - Analyze coverage gaps and rank by severity
   3:   RED: ATTACK - Find vulnerabilities via structured attack hypotheses
   4:   GREEN: VERIFY - Verify Red's claims, filter false positives
-  5:   BLUE: WRITE TESTS - Write test cases for confirmed issues
-  6:   QUALITY REVIEW - Score test quality (FAIL loops back to 5)
-  7:   GREEN: FINAL REVIEW - Review + anti-slop gate (FAIL loops back to 5)
-  8:   PRESENT RESULTS - Summarize findings to user
+  5:   SANDBOX: VALIDATE - Execute runtime probes to confirm/deny findings
+  6:   BLUE: WRITE TESTS - Write test cases for confirmed issues
+  7:   QUALITY REVIEW - Score test quality (FAIL loops back to 6)
+  8:   GREEN: FINAL REVIEW - Review + anti-slop gate (FAIL loops back to 6)
+  9:   PRESENT RESULTS - Summarize findings to user
 
-Steps 6 and 7 are quality gates with PASS/FAIL verdicts.
-On FAIL, the workflow loops back to step 5 (Blue) with attempt+1.
+Steps 7 and 8 are quality gates with PASS/FAIL verdicts.
+On FAIL, the workflow loops back to step 6 (Blue) with attempt+1.
 Max 2 retries (attempt 3 forces forward to prevent infinite loops).
 
 Adversarial red/blue/green team model:
   - Green (architect): analyzes, verifies, reviews
   - Red (adversarial-analyst): attacks via structured hypotheses
+  - Sandbox (sandbox-executor): validates findings with runtime probes
   - Blue (developer): writes tests for confirmed issues
   - Quality (quality-reviewer): scores test quality
 """
@@ -237,15 +239,50 @@ VERIFY_INSTRUCTIONS = (
     "  VERDICT: ALL CLEAR — if no issues are confirmed (all false positives)"
 )
 
-# --- STEP 5: BLUE - WRITE TESTS --------------------------------------------
+# --- STEP 5: SANDBOX - VALIDATE ---------------------------------------------
+
+SANDBOX_INSTRUCTIONS = (
+    "You are SANDBOX EXECUTOR validating confirmed findings with runtime probes.\n"
+    "\n"
+    "The orchestrator will pass PROJECT_CONTEXT and CONFIRMED_ISSUES in your "
+    "prompt.\n"
+    "\n"
+    "Your task:\n"
+    "- For each confirmed issue, generate and execute a minimal diagnostic probe\n"
+    "- Probes must be self-contained, deterministic, and leave no artifacts\n"
+    "- Use subprocess.run() with list args only (never shell=True), timeout=30\n"
+    "- Write probes to /tmp only; delete after execution\n"
+    "- If Docker is available, use --network none for containerized probes\n"
+    "- If execution is not possible, mark as UNVERIFIABLE with explanation\n"
+    "\n"
+    "For each finding, output:\n"
+    "    SANDBOX RESULT #N\n"
+    "      Hypothesis: [ref to ATTACK HYPOTHESIS #N]\n"
+    "      Verdict: CONFIRMED | REFUTED | UNVERIFIABLE\n"
+    "      Execution Evidence:\n"
+    "        Probe: [code snippet]\n"
+    "        Exit Code: [result]\n"
+    "        Stdout/Stderr: [truncated to 500 chars each]\n"
+    "      Analysis: [what evidence proves]\n"
+    "      Enrichment: [stack trace, actual vs expected for Blue Team]\n"
+    "\n"
+    "This step is informational — always proceed to the next step regardless "
+    "of verdicts. Do NOT gate on results.\n"
+    "\n"
+    "The orchestrator will save your output as SANDBOX_RESULTS."
+)
+
+# --- STEP 6: BLUE - WRITE TESTS --------------------------------------------
 
 BLUE_INSTRUCTIONS = (
     "You are BLUE TEAM (developer role) writing tests.\n"
     "\n"
-    "The orchestrator will pass PROJECT_CONTEXT, CONFIRMED_ISSUES, and test "
-    "conventions from Step 1 in your prompt.\n"
+    "The orchestrator will pass PROJECT_CONTEXT, CONFIRMED_ISSUES, "
+    "SANDBOX_RESULTS, and test conventions from Step 1 in your prompt.\n"
     "\n"
     "Your task:\n"
+    "- Prioritize issues by sandbox verdict: CONFIRMED first, then "
+    "UNVERIFIABLE, skip REFUTED entirely\n"
     "- Write test cases ONLY for confirmed issues — not false positives, "
     "not design limitations\n"
     "- Match the project's test conventions exactly (file naming, imports, "
@@ -267,16 +304,18 @@ BLUE_INSTRUCTIONS = (
     "The orchestrator will save your output as TEST_RESULTS."
 )
 
-# --- STEP 6: QUALITY REVIEW ------------------------------------------------
+# --- STEP 7: QUALITY REVIEW ------------------------------------------------
 
 QUALITY_REVIEW_INSTRUCTIONS = (
     "You are reviewing the quality of Blue Team's tests.\n"
     "\n"
-    "The orchestrator will pass CONFIRMED_ISSUES and TEST_RESULTS in your "
-    "prompt.\n"
+    "The orchestrator will pass CONFIRMED_ISSUES, SANDBOX_RESULTS, and "
+    "TEST_RESULTS in your prompt.\n"
     "\n"
     "Your task:\n"
     "- For each test, assess whether it meaningfully covers the confirmed issue\n"
+    "- Cross-reference tests against sandbox execution evidence — tests for "
+    "CONFIRMED issues should reproduce the probe's failure mode\n"
     "- Check for: correct assertions, edge case coverage, no false passes, "
     "proper isolation\n"
     "- Score each test as: STRONG (covers issue thoroughly), ADEQUATE "
@@ -292,16 +331,18 @@ QUALITY_REVIEW_INSTRUCTIONS = (
     "  VERDICT: FAIL — if any test scores WEAK"
 )
 
-# --- STEP 7: GREEN - FINAL REVIEW ------------------------------------------
+# --- STEP 8: GREEN - FINAL REVIEW ------------------------------------------
 
 REVIEW_INSTRUCTIONS = (
     "You are GREEN TEAM (architect role) performing final review.\n"
     "\n"
-    "The orchestrator will pass CONFIRMED_ISSUES, TEST_RESULTS, and "
-    "QUALITY_REVIEW in your prompt.\n"
+    "The orchestrator will pass CONFIRMED_ISSUES, SANDBOX_RESULTS, "
+    "TEST_RESULTS, and QUALITY_REVIEW in your prompt.\n"
     "\n"
     "Your task:\n"
     "- Incorporate the quality reviewer's scores into your assessment\n"
+    "- Include sandbox execution evidence in your final assessment — note "
+    "which issues were runtime-confirmed vs unverifiable\n"
     "- For WEAK-scored tests, flag them for rewrite\n"
     "- Evaluate whether each test is actually necessary — reject tests that:\n"
     "  - Duplicate existing coverage\n"
@@ -323,7 +364,7 @@ REVIEW_INSTRUCTIONS = (
     "critical issues remain"
 )
 
-# --- STEP 8: PRESENT RESULTS -----------------------------------------------
+# --- STEP 9: PRESENT RESULTS -----------------------------------------------
 
 PRESENT_INSTRUCTIONS = (
     "Summarize the full adversarial testing pipeline results to the user:\n"
@@ -333,10 +374,13 @@ PRESENT_INSTRUCTIONS = (
     "Hypothesis format used\n"
     "3. **Confirmed after verification**: count from Step 4 — note how many "
     "false positives were filtered\n"
-    "4. **Tests written**: file paths from Step 5, with pass/fail status\n"
-    "5. **Quality scores**: from Step 6, per-test STRONG/ADEQUATE/WEAK "
+    "4. **Sandbox validation**: from Step 5 (SANDBOX_RESULTS) — count "
+    "CONFIRMED vs REFUTED vs UNVERIFIABLE, highlight any findings that "
+    "changed status after runtime probing\n"
+    "5. **Tests written**: file paths from Step 6, with pass/fail status\n"
+    "6. **Quality scores**: from Step 7, per-test STRONG/ADEQUATE/WEAK "
     "ratings\n"
-    "6. **Proposed fixes**: from Step 7, for user approval before "
+    "7. **Proposed fixes**: from Step 8, for user approval before "
     "implementing\n"
     "\n"
     "Present this as a clear, actionable summary. The user decides what to "
@@ -363,12 +407,14 @@ def build_next_command(step: int, target: str = "", attempt: int = 1) -> str | N
     elif step == 4:
         return None  # conditional branching handled in format_output
     elif step == 5:
-        return f"{base} --step 6{suffix}"
+        return f"{base} --step 6{suffix}"  # sandbox always forwards to Blue
     elif step == 6:
-        return None if attempt <= 2 else f"{base} --step 7{suffix}"
+        return f"{base} --step 7{suffix}"  # Blue always forwards to QR
     elif step == 7:
         return None if attempt <= 2 else f"{base} --step 8{suffix}"
     elif step == 8:
+        return None if attempt <= 2 else f"{base} --step 9{suffix}"
+    elif step == 9:
         return None  # terminal
     return None
 
@@ -380,18 +426,19 @@ def build_next_command(step: int, target: str = "", attempt: int = 1) -> str | N
 # Static steps: (title, instructions) tuples for steps with constant content
 STATIC_STEPS = {
     1: ("Detect", DETECT_INSTRUCTIONS),
-    8: ("Present Results", PRESENT_INSTRUCTIONS),
+    9: ("Present Results", PRESENT_INSTRUCTIONS),
 }
 
 # Dynamic steps: (title, agent_type, model, instructions)
-# Steps 2-7 use subagent_dispatch, producing dispatch blocks as body content
+# Steps 2-8 use subagent_dispatch, producing dispatch blocks as body content
 DYNAMIC_STEPS = {
     2: ("Green: Coverage Analysis", "architect", "opus", COVERAGE_INSTRUCTIONS),
     3: ("Red: Attack", "adversarial-analyst", "sonnet", RED_INSTRUCTIONS),
     4: ("Green: Verify", "architect", "opus", VERIFY_INSTRUCTIONS),
-    5: ("Blue: Write Tests", "developer", "sonnet", BLUE_INSTRUCTIONS),
-    6: ("Quality Review", "quality-reviewer", "sonnet", QUALITY_REVIEW_INSTRUCTIONS),
-    7: ("Green: Final Review", "architect", "opus", REVIEW_INSTRUCTIONS),
+    5: ("Sandbox: Validate", "sandbox-executor", "sonnet", SANDBOX_INSTRUCTIONS),
+    6: ("Blue: Write Tests", "developer", "sonnet", BLUE_INSTRUCTIONS),
+    7: ("Quality Review", "quality-reviewer", "sonnet", QUALITY_REVIEW_INSTRUCTIONS),
+    8: ("Green: Final Review", "architect", "opus", REVIEW_INSTRUCTIONS),
 }
 
 
@@ -415,8 +462,9 @@ def format_output(step: int, target: str = "", attempt: int = 1) -> str:
 
     Static steps use format_step directly.
     Dynamic steps wrap subagent_dispatch output in format_step.
-    Steps 4, 6, 7 use conditional branching (if_pass/if_fail).
-    Steps 6, 7 force forward when attempt > 2 (max retries exceeded).
+    Steps 4, 7, 8 use conditional branching (if_pass/if_fail).
+    Step 4: PASS=ALL_CLEAR skips to step 8, FAIL=ISSUES_FOUND continues to step 5.
+    Steps 7, 8 force forward when attempt > 2 (max retries exceeded).
     """
     base = f"python3 -m {MODULE_PATH}"
     suffix = f" --target '{target}'" if target else ""
@@ -441,33 +489,33 @@ def format_output(step: int, target: str = "", attempt: int = 1) -> str:
         )
 
         if step == 4:
-            # Conditional: PASS skips to step 7, FAIL continues to step 5
+            # PASS=ALL_CLEAR skips to step 8, FAIL=ISSUES_FOUND continues to step 5
             return format_step(
                 body,
                 title=f"TESTING - {title}",
-                if_pass=f"{base} --step 7{suffix}{attempt_suffix}",
+                if_pass=f"{base} --step 8{suffix}{attempt_suffix}",
                 if_fail=f"{base} --step 5{suffix}{attempt_suffix}",
             )
-        elif step == 6:
-            if attempt <= 2:
-                return format_step(
-                    body,
-                    title=f"TESTING - {title}",
-                    if_pass=f"{base} --step 7{suffix}{attempt_suffix}",
-                    if_fail=f"{base} --step 5{suffix}{bump}",
-                )
-            else:
-                next_cmd = build_next_command(step, target, attempt)
-                return format_step(
-                    body, next_cmd or "", title=f"TESTING - {title}"
-                )
         elif step == 7:
             if attempt <= 2:
                 return format_step(
                     body,
                     title=f"TESTING - {title}",
                     if_pass=f"{base} --step 8{suffix}{attempt_suffix}",
-                    if_fail=f"{base} --step 5{suffix}{bump}",
+                    if_fail=f"{base} --step 6{suffix}{bump}",
+                )
+            else:
+                next_cmd = build_next_command(step, target, attempt)
+                return format_step(
+                    body, next_cmd or "", title=f"TESTING - {title}"
+                )
+        elif step == 8:
+            if attempt <= 2:
+                return format_step(
+                    body,
+                    title=f"TESTING - {title}",
+                    if_pass=f"{base} --step 9{suffix}{attempt_suffix}",
+                    if_fail=f"{base} --step 6{suffix}{bump}",
                 )
             else:
                 next_cmd = build_next_command(step, target, attempt)
@@ -475,6 +523,7 @@ def format_output(step: int, target: str = "", attempt: int = 1) -> str:
                     body, next_cmd or "", title=f"TESTING - {title}"
                 )
         else:
+            # Linear steps: 2, 3, 5, 6 — always forward to next
             next_cmd = build_next_command(step, target, attempt)
             return format_step(
                 body, next_cmd or "", title=f"TESTING - {title}"
@@ -495,8 +544,8 @@ def main():
         description="Testing - Adversarial coverage improvement workflow",
         epilog=(
             "Steps: detect (1) -> green (2) -> red (3) -> verify (4) "
-            "-> blue (5) -> QR (6) -> final (7) -> present (8). "
-            "Steps 6 and 7 loop back to 5 on FAIL (max 2 retries)."
+            "-> sandbox (5) -> blue (6) -> QR (7) -> final (8) -> present (9). "
+            "Steps 7 and 8 loop back to 6 on FAIL (max 2 retries)."
         ),
     )
     parser.add_argument("--step", type=int, required=True)
@@ -507,8 +556,8 @@ def main():
 
     args = parser.parse_args()
 
-    if args.step < 1 or args.step > 8:
-        sys.exit("ERROR: --step must be 1-8")
+    if args.step < 1 or args.step > 9:
+        sys.exit("ERROR: --step must be 1-9")
 
     print(format_output(args.step, args.target.rstrip("/"), args.attempt))
 
