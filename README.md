@@ -23,8 +23,7 @@ npm install -g haoshoku
 ```json
 {
   "skillSources": [
-    "https://github.com/axatbhardwaj/claude-skills.git",
-    "https://github.com/solatis/claude-config.git"
+    "https://github.com/axatbhardwaj/claude-skills.git"
   ]
 }
 ```
