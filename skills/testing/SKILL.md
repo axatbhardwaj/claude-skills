@@ -24,8 +24,4 @@ Do NOT explore or analyze first. Run the script and follow its output.
 
 ## Install
 
-This skill dispatches work to custom agent types (`architect`, `adversarial-analyst`, `sandbox-executor`, `developer`, `quality-reviewer`). Copy the files from `agents/` to your `~/.claude/agents/` directory:
-
-```sh
-cp agents/*.md ~/.claude/agents/
-```
+This skill dispatches work to custom agent types (`architect`, `adversarial-analyst`, `sandbox-executor`, `developer`, `quality-reviewer`). All agents are auto-deployed from the top-level `agents/` directory via `haoshoku --skills`.
