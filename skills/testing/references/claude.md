@@ -27,5 +27,6 @@ exact findings, evidence, and verdict labels.
 
 ## Safety
 
-Steps 2-5 and 7-8 are read-only. Step 6 may create or edit test files only.
+Steps 2-5 and 7-8 do not edit project source or test files. Step 5 may execute
+diagnostic probes in `/tmp`. Step 6 may create or edit test files only.
 Production-code fixes require a separate explicit user approval after Step 9.

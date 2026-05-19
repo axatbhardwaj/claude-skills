@@ -26,6 +26,7 @@ Adversarial red/blue/green team model:
 """
 
 import argparse
+import re
 import shlex
 import sys
 from pathlib import Path, PurePosixPath
@@ -37,6 +38,7 @@ from pathlib import Path, PurePosixPath
 
 SCRIPT_PATH = Path(__file__).resolve()
 DEFAULT_STATE_DIR = ".testing-skill"
+TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 STEP_INPUTS = {
     2: ["01-project-context.md"],
@@ -62,6 +64,13 @@ STEP_INPUTS = {
         "08-final-review.md",
     ],
 }
+
+STEP_9_ALL_CLEAR_INPUTS = [
+    "01-project-context.md",
+    "02-coverage-gaps.md",
+    "03-red-findings.md",
+    "04-confirmed-issues.md",
+]
 
 STEP_OUTPUTS = {
     1: "01-project-context.md",
@@ -405,6 +414,22 @@ PRESENT_INSTRUCTIONS = (
     "fix next."
 )
 
+PRESENT_ALL_CLEAR_INSTRUCTIONS = (
+    "Summarize the adversarial testing pipeline results to the user:\n"
+    "\n"
+    "If Step 4 returned ALL CLEAR, Steps 5-8 did not run. Do not look for "
+    "sandbox, test-writing, quality-review, or final-review state files.\n"
+    "\n"
+    "1. **Coverage gaps found**: count from Step 2 (COVERAGE_GAPS)\n"
+    "2. **Red team findings**: count from Step 3 (RED_FINDINGS), note Attack "
+    "Hypothesis format used\n"
+    "3. **Verification result**: from Step 4, report that no issues were "
+    "confirmed and how many false positives were filtered\n"
+    "\n"
+    "Present this as a clear, actionable summary. If any coverage gaps remain "
+    "without confirmed bugs, recommend the next targeted test-review area."
+)
+
 
 # ============================================================================
 # MESSAGE BUILDERS
@@ -421,12 +446,15 @@ def workflow_command(
     target: str = "",
     attempt: int = 1,
     state_dir: str = DEFAULT_STATE_DIR,
+    all_clear: bool = False,
 ) -> str:
     parts = ["python3", str(SCRIPT_PATH), "--step", str(step), "--state-dir", state_dir]
     if target:
         parts.extend(["--target", target])
     if attempt > 1:
         parts.extend(["--attempt", str(attempt)])
+    if all_clear:
+        parts.append("--all-clear")
     return shell_cmd(*parts)
 
 
@@ -500,9 +528,9 @@ def state_path(state_dir: str, filename: str) -> str:
     return str(PurePosixPath(state_dir) / filename)
 
 
-def state_guidance(step: int, state_dir: str) -> str:
+def state_guidance(step: int, state_dir: str, all_clear: bool = False) -> str:
     lines: list[str] = []
-    inputs = STEP_INPUTS.get(step, [])
+    inputs = STEP_9_ALL_CLEAR_INPUTS if step == 9 and all_clear else STEP_INPUTS.get(step, [])
     output = STEP_OUTPUTS.get(step)
     if inputs:
         lines.append("READ STATE FILES before this step:")
@@ -522,6 +550,7 @@ def format_output(
     target: str = "",
     attempt: int = 1,
     state_dir: str = DEFAULT_STATE_DIR,
+    all_clear: bool = False,
 ) -> str:
     """Format output for the given step.
 
@@ -532,10 +561,13 @@ def format_output(
     Steps 7, 8 force forward when attempt > 2 (max retries exceeded).
     """
     scope = _scope_prefix(target)
-    state = state_guidance(step, state_dir)
+    state = state_guidance(step, state_dir, all_clear)
 
     if step in STATIC_STEPS:
-        title, instructions = STATIC_STEPS[step]
+        if step == 9 and all_clear:
+            title, instructions = ("Present Results", PRESENT_ALL_CLEAR_INSTRUCTIONS)
+        else:
+            title, instructions = STATIC_STEPS[step]
         next_cmd = build_next_command(step, target, attempt, state_dir)
         return format_step(
             state + scope + instructions, next_cmd or "", title=f"TESTING - {title}"
@@ -554,7 +586,7 @@ def format_output(
             return format_step(
                 body,
                 title=f"TESTING - {title}",
-                if_pass=workflow_command(9, target, attempt, state_dir),
+                if_pass=workflow_command(9, target, attempt, state_dir, all_clear=True),
                 if_fail=workflow_command(5, target, attempt, state_dir),
                 pass_label="VERDICT: ALL CLEAR",
                 fail_label="VERDICT: ISSUES FOUND",
@@ -602,14 +634,26 @@ def format_output(
 
 
 def normalize_target(raw: str) -> str:
-    target = raw.strip().strip("/")
+    target = raw.strip()
     if target == "" or target == ".":
         return ""
-    if any(ch in target for ch in ("\x00", "\n", "\r")):
-        raise argparse.ArgumentTypeError("--target must be a relative subdirectory")
-    normalized = target.replace("\\", "/")
+    if (
+        target.startswith("/")
+        or target.startswith("~")
+        or "\\" in target
+        or any(ch in target for ch in ("\x00", "\n", "\r"))
+    ):
+        raise argparse.ArgumentTypeError("--target must be a project-relative subdirectory")
+    if TARGET_PATTERN.fullmatch(target) is None:
+        raise argparse.ArgumentTypeError(
+            "--target may contain only letters, numbers, dots, underscores, hyphens, and slashes"
+        )
+    normalized = target.rstrip("/")
+    parts = normalized.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise argparse.ArgumentTypeError("--target must stay inside the project root")
     path = PurePosixPath(normalized)
-    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+    if path.is_absolute():
         raise argparse.ArgumentTypeError("--target must stay inside the project root")
     return str(path)
 
@@ -631,15 +675,19 @@ def main():
                         help="Retry attempt number (default: 1, max useful: 3)")
     parser.add_argument("--state-dir", type=str, default=DEFAULT_STATE_DIR,
                         help="Directory for handoff files (default: .testing-skill)")
+    parser.add_argument("--all-clear", action="store_true",
+                        help="Use the Step 9 summary path after Step 4 finds no confirmed issues")
 
     args = parser.parse_args()
 
     if args.step < 1 or args.step > 9:
         sys.exit("ERROR: --step must be 1-9")
+    if args.all_clear and args.step != 9:
+        sys.exit("ERROR: --all-clear is only valid with --step 9")
 
     Path(args.state_dir).mkdir(parents=True, exist_ok=True)
 
-    print(format_output(args.step, args.target, args.attempt, args.state_dir))
+    print(format_output(args.step, args.target, args.attempt, args.state_dir, args.all_clear))
 
 
 if __name__ == "__main__":

@@ -15,6 +15,10 @@ Run the orchestrator from the target project root:
 python3 <skill-dir>/scripts/testing.py --step 1
 ```
 
+Replace `<skill-dir>` with the path where the skill is installed:
+`~/.claude/skills/testing` for Claude Code, or `~/.agents/skills/testing` for
+Codex.
+
 For scoped analysis:
 
 ```bash
@@ -22,8 +26,8 @@ python3 <skill-dir>/scripts/testing.py --step 1 --target backend
 ```
 
 Use `--state-dir <dir>` to choose the handoff directory. The default is
-`.testing-skill/`; add it to `.gitignore` or use a temporary directory if the
-run should leave no repo-local state.
+`.testing-skill/`. Add `.testing-skill/` to the target project's `.gitignore`
+or use a temporary directory if the run should leave no repo-local state.
 
 ## Workflow Contract
 
@@ -34,9 +38,9 @@ The script prints the next instruction block. Follow it literally:
 3. Run the printed next command.
 4. Continue until Step 9 presents results.
 
-Do not write tests until Step 6. Steps 2-5 are read-only analysis and
-verification. Step 6 may edit tests only, unless the user explicitly approves a
-production-code fix.
+Do not write tests until Step 6. Steps 2-5 and 7-8 do not edit project source
+or test files. Step 5 may execute diagnostic probes in `/tmp`; Step 6 may edit
+tests only, unless the user explicitly approves a production-code fix.
 
 ## Platform Adapters
 
