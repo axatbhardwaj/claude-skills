@@ -26,19 +26,53 @@ Adversarial red/blue/green team model:
 """
 
 import argparse
+import shlex
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-MODULE_PATH = "skills.testing.testing"
+SCRIPT_PATH = Path(__file__).resolve()
+DEFAULT_STATE_DIR = ".testing-skill"
 
-# Installed: scripts/skills/testing/testing.py
-# .parent(testing/) -> .parent(skills/) -> .parent(scripts/)
-SKILLS_DIR = Path(__file__).resolve().parent.parent.parent
+STEP_INPUTS = {
+    2: ["01-project-context.md"],
+    3: ["01-project-context.md", "02-coverage-gaps.md"],
+    4: ["01-project-context.md", "03-red-findings.md"],
+    5: ["01-project-context.md", "04-confirmed-issues.md"],
+    6: ["01-project-context.md", "04-confirmed-issues.md", "05-sandbox-results.md"],
+    7: ["04-confirmed-issues.md", "05-sandbox-results.md", "06-test-results.md"],
+    8: [
+        "04-confirmed-issues.md",
+        "05-sandbox-results.md",
+        "06-test-results.md",
+        "07-quality-review.md",
+    ],
+    9: [
+        "01-project-context.md",
+        "02-coverage-gaps.md",
+        "03-red-findings.md",
+        "04-confirmed-issues.md",
+        "05-sandbox-results.md",
+        "06-test-results.md",
+        "07-quality-review.md",
+        "08-final-review.md",
+    ],
+}
+
+STEP_OUTPUTS = {
+    1: "01-project-context.md",
+    2: "02-coverage-gaps.md",
+    3: "03-red-findings.md",
+    4: "04-confirmed-issues.md",
+    5: "05-sandbox-results.md",
+    6: "06-test-results.md",
+    7: "07-quality-review.md",
+    8: "08-final-review.md",
+}
 
 
 # ============================================================================
@@ -47,28 +81,18 @@ SKILLS_DIR = Path(__file__).resolve().parent.parent.parent
 # From skills.lib.workflow.prompts — inlined to remove shared library dependency.
 
 TASK_TOOL_INSTRUCTION = """\
-ACTION: Use the Task tool to spawn this agent.
+Claude Code:
+  Use the Task tool with:
+    - subagent_type: {agent_type}
+    - model: {model_param}
+    - prompt: the task below plus the listed state-file inputs
+    - run_in_background: false or omitted
 
-Task tool parameters:
-  - subagent_type: {agent_type}
-  - model: {model_param}
-  - prompt: Include the task and invoke command below
-  - run_in_background: NEVER set this. Always omit or set false.
-    Background agents return full session transcripts via TaskOutput,
-    flooding the orchestrator context window. Foreground agents return
-    only the agent's final text response."""
-
-SUB_AGENT_INVOKE = """\
-MANDATORY INVOKE BLOCK - Copy VERBATIM into the agent's prompt:
-================================================================================
-FIRST ACTION REQUIRED: Run this command via Bash tool before any other response.
-Do NOT skip. Do NOT produce analysis first. Execute this command IMMEDIATELY.
-
-Working directory: {working_dir}
-Command: {cmd}
-================================================================================
-CRITICAL: Copy the block above EXACTLY. Do not paraphrase or summarize.
-The subagent needs "FIRST ACTION REQUIRED" to know it must run the command."""
+Codex:
+  If current instructions and tools allow subagents, use an inherited-model
+  subagent for this bounded task. Use read-only/explorer-style delegation for
+  analysis steps and a code-writing worker only for the Blue test-writing step.
+  If subagents are unavailable or disallowed, do this step locally."""
 
 SUBAGENT_TEMPLATE = """\
 DISPATCH SUB-AGENT
@@ -79,9 +103,8 @@ DISPATCH SUB-AGENT
 TASK FOR THE SUB-AGENT:
 {task_section}
 
-{invoke_block}
-
-After the sub-agent returns, continue with the next workflow step."""
+The sub-agent must return only the requested analysis or edit summary. After it
+returns, save the exact final response to the step output file before continuing."""
 
 
 def task_tool_instruction(agent_type: str, model: str | None) -> str:
@@ -90,14 +113,8 @@ def task_tool_instruction(agent_type: str, model: str | None) -> str:
     return TASK_TOOL_INSTRUCTION.format(agent_type=agent_type, model_param=model_param)
 
 
-def sub_agent_invoke(cmd: str) -> str:
-    """Tell sub-agent what command to run after spawning."""
-    return SUB_AGENT_INVOKE.format(working_dir=SKILLS_DIR, cmd=cmd)
-
-
 def subagent_dispatch(
     agent_type: str,
-    command: str,
     prompt: str = "",
     model: str | None = None,
 ) -> str:
@@ -106,12 +123,13 @@ def subagent_dispatch(
     return SUBAGENT_TEMPLATE.format(
         task_tool_block=task_tool_instruction(agent_type, model),
         task_section=task_section,
-        invoke_block=sub_agent_invoke(command),
     )
 
 
 def format_step(body: str, next_cmd: str = "", title: str = "",
-                if_pass: str = "", if_fail: str = "") -> str:
+                if_pass: str = "", if_fail: str = "",
+                pass_label: str = "VERDICT: PASS",
+                fail_label: str = "VERDICT: FAIL") -> str:
     """Assemble complete workflow step: title + body + invoke directive."""
     if title:
         header = f"{title}\n{'=' * len(title)}\n\n"
@@ -120,18 +138,18 @@ def format_step(body: str, next_cmd: str = "", title: str = "",
     if if_pass and if_fail:
         invoke = (
             f"NEXT STEP (MANDATORY -- execute exactly one):\n"
-            f"    Working directory: {SKILLS_DIR}\n"
-            f"    ALL agents returned PASS  ->  {if_pass}\n"
-            f"    ANY agent returned FAIL   ->  {if_fail}\n\n"
+            f"    Working directory: current project root\n"
+            f"    {pass_label}  ->  {if_pass}\n"
+            f"    {fail_label}  ->  {if_fail}\n\n"
             f"This is a mechanical routing decision. Do not interpret, summarize, "
             f"or assess the results.\n"
-            f"Count PASS vs FAIL, then execute the matching command."
+            f"Match the exact verdict label, then execute the matching command."
         )
         return f"{body}\n\n{invoke}"
     elif next_cmd:
         invoke = (
             f"NEXT STEP:\n"
-            f"    Working directory: {SKILLS_DIR}\n"
+            f"    Working directory: current project root\n"
             f"    Command: {next_cmd}\n\n"
             f"Execute this command now."
         )
@@ -393,27 +411,48 @@ PRESENT_INSTRUCTIONS = (
 # ============================================================================
 
 
-def build_next_command(step: int, target: str = "", attempt: int = 1) -> str | None:
+def shell_cmd(*parts: str) -> str:
+    """Build a shell-safe command string for copy/paste instructions."""
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def workflow_command(
+    step: int,
+    target: str = "",
+    attempt: int = 1,
+    state_dir: str = DEFAULT_STATE_DIR,
+) -> str:
+    parts = ["python3", str(SCRIPT_PATH), "--step", str(step), "--state-dir", state_dir]
+    if target:
+        parts.extend(["--target", target])
+    if attempt > 1:
+        parts.extend(["--attempt", str(attempt)])
+    return shell_cmd(*parts)
+
+
+def build_next_command(
+    step: int,
+    target: str = "",
+    attempt: int = 1,
+    state_dir: str = DEFAULT_STATE_DIR,
+) -> str | None:
     """Build invoke command for next step, threading --target and --attempt."""
-    base = f"python3 -m {MODULE_PATH}"
-    suffix = f" --target '{target}'" if target else ""
-    suffix += f" --attempt {attempt}" if attempt > 1 else ""
     if step == 1:
-        return f"{base} --step 2{suffix}"
+        return workflow_command(2, target, attempt, state_dir)
     elif step == 2:
-        return f"{base} --step 3{suffix}"
+        return workflow_command(3, target, attempt, state_dir)
     elif step == 3:
-        return f"{base} --step 4{suffix}"
+        return workflow_command(4, target, attempt, state_dir)
     elif step == 4:
         return None  # conditional branching handled in format_output
     elif step == 5:
-        return f"{base} --step 6{suffix}"  # sandbox always forwards to Blue
+        return workflow_command(6, target, attempt, state_dir)
     elif step == 6:
-        return f"{base} --step 7{suffix}"  # Blue always forwards to QR
+        return workflow_command(7, target, attempt, state_dir)
     elif step == 7:
-        return None if attempt <= 2 else f"{base} --step 8{suffix}"
+        return None if attempt <= 2 else workflow_command(8, target, attempt, state_dir)
     elif step == 8:
-        return None if attempt <= 2 else f"{base} --step 9{suffix}"
+        return None if attempt <= 2 else workflow_command(9, target, attempt, state_dir)
     elif step == 9:
         return None  # terminal
     return None
@@ -457,55 +496,79 @@ def _scope_prefix(target: str) -> str:
     )
 
 
-def format_output(step: int, target: str = "", attempt: int = 1) -> str:
+def state_path(state_dir: str, filename: str) -> str:
+    return str(PurePosixPath(state_dir) / filename)
+
+
+def state_guidance(step: int, state_dir: str) -> str:
+    lines: list[str] = []
+    inputs = STEP_INPUTS.get(step, [])
+    output = STEP_OUTPUTS.get(step)
+    if inputs:
+        lines.append("READ STATE FILES before this step:")
+        lines.extend(f"- {state_path(state_dir, filename)}" for filename in inputs)
+    if output:
+        if lines:
+            lines.append("")
+        lines.append("SAVE OUTPUT:")
+        lines.append(f"- Write the exact final result for this step to {state_path(state_dir, output)}")
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n\n"
+
+
+def format_output(
+    step: int,
+    target: str = "",
+    attempt: int = 1,
+    state_dir: str = DEFAULT_STATE_DIR,
+) -> str:
     """Format output for the given step.
 
     Static steps use format_step directly.
     Dynamic steps wrap subagent_dispatch output in format_step.
     Steps 4, 7, 8 use conditional branching (if_pass/if_fail).
-    Step 4: PASS=ALL_CLEAR skips to step 8, FAIL=ISSUES_FOUND continues to step 5.
+    Step 4: ALL_CLEAR skips to results, ISSUES_FOUND continues to step 5.
     Steps 7, 8 force forward when attempt > 2 (max retries exceeded).
     """
-    base = f"python3 -m {MODULE_PATH}"
-    suffix = f" --target '{target}'" if target else ""
-    bump = f" --attempt {attempt + 1}" if attempt <= 2 else ""
-    attempt_suffix = f" --attempt {attempt}" if attempt > 1 else ""
     scope = _scope_prefix(target)
+    state = state_guidance(step, state_dir)
 
     if step in STATIC_STEPS:
         title, instructions = STATIC_STEPS[step]
-        next_cmd = build_next_command(step, target, attempt)
+        next_cmd = build_next_command(step, target, attempt, state_dir)
         return format_step(
-            scope + instructions, next_cmd or "", title=f"TESTING - {title}"
+            state + scope + instructions, next_cmd or "", title=f"TESTING - {title}"
         )
 
     elif step in DYNAMIC_STEPS:
         title, agent_type, model, instructions = DYNAMIC_STEPS[step]
         body = subagent_dispatch(
             agent_type=agent_type,
-            command="",
-            prompt=scope + instructions,
+            prompt=state + scope + instructions,
             model=model,
         )
 
         if step == 4:
-            # PASS=ALL_CLEAR skips to step 8, FAIL=ISSUES_FOUND continues to step 5
+            # ALL CLEAR skips directly to results; confirmed issues continue to sandbox.
             return format_step(
                 body,
                 title=f"TESTING - {title}",
-                if_pass=f"{base} --step 8{suffix}{attempt_suffix}",
-                if_fail=f"{base} --step 5{suffix}{attempt_suffix}",
+                if_pass=workflow_command(9, target, attempt, state_dir),
+                if_fail=workflow_command(5, target, attempt, state_dir),
+                pass_label="VERDICT: ALL CLEAR",
+                fail_label="VERDICT: ISSUES FOUND",
             )
         elif step == 7:
             if attempt <= 2:
                 return format_step(
                     body,
                     title=f"TESTING - {title}",
-                    if_pass=f"{base} --step 8{suffix}{attempt_suffix}",
-                    if_fail=f"{base} --step 6{suffix}{bump}",
+                    if_pass=workflow_command(8, target, attempt, state_dir),
+                    if_fail=workflow_command(6, target, attempt + 1, state_dir),
                 )
             else:
-                next_cmd = build_next_command(step, target, attempt)
+                next_cmd = build_next_command(step, target, attempt, state_dir)
                 return format_step(
                     body, next_cmd or "", title=f"TESTING - {title}"
                 )
@@ -514,17 +577,17 @@ def format_output(step: int, target: str = "", attempt: int = 1) -> str:
                 return format_step(
                     body,
                     title=f"TESTING - {title}",
-                    if_pass=f"{base} --step 9{suffix}{attempt_suffix}",
-                    if_fail=f"{base} --step 6{suffix}{bump}",
+                    if_pass=workflow_command(9, target, attempt, state_dir),
+                    if_fail=workflow_command(6, target, attempt + 1, state_dir),
                 )
             else:
-                next_cmd = build_next_command(step, target, attempt)
+                next_cmd = build_next_command(step, target, attempt, state_dir)
                 return format_step(
                     body, next_cmd or "", title=f"TESTING - {title}"
                 )
         else:
             # Linear steps: 2, 3, 5, 6 — always forward to next
-            next_cmd = build_next_command(step, target, attempt)
+            next_cmd = build_next_command(step, target, attempt, state_dir)
             return format_step(
                 body, next_cmd or "", title=f"TESTING - {title}"
             )
@@ -538,6 +601,19 @@ def format_output(step: int, target: str = "", attempt: int = 1) -> str:
 # ============================================================================
 
 
+def normalize_target(raw: str) -> str:
+    target = raw.strip().strip("/")
+    if target == "" or target == ".":
+        return ""
+    if any(ch in target for ch in ("\x00", "\n", "\r")):
+        raise argparse.ArgumentTypeError("--target must be a relative subdirectory")
+    normalized = target.replace("\\", "/")
+    path = PurePosixPath(normalized)
+    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        raise argparse.ArgumentTypeError("--target must stay inside the project root")
+    return str(path)
+
+
 def main():
     """Entry point for testing workflow."""
     parser = argparse.ArgumentParser(
@@ -549,17 +625,21 @@ def main():
         ),
     )
     parser.add_argument("--step", type=int, required=True)
-    parser.add_argument("--target", type=str, default="",
+    parser.add_argument("--target", type=normalize_target, default="",
                         help="Subdirectory to scope analysis to (e.g., backend/)")
     parser.add_argument("--attempt", type=int, default=1,
                         help="Retry attempt number (default: 1, max useful: 3)")
+    parser.add_argument("--state-dir", type=str, default=DEFAULT_STATE_DIR,
+                        help="Directory for handoff files (default: .testing-skill)")
 
     args = parser.parse_args()
 
     if args.step < 1 or args.step > 9:
         sys.exit("ERROR: --step must be 1-9")
 
-    print(format_output(args.step, args.target.rstrip("/"), args.attempt))
+    Path(args.state_dir).mkdir(parents=True, exist_ok=True)
+
+    print(format_output(args.step, args.target, args.attempt, args.state_dir))
 
 
 if __name__ == "__main__":

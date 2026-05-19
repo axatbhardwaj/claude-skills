@@ -1,0 +1,7 @@
+interface:
+  display_name: "Testing"
+  short_description: "Adversarial test-gap analysis and regression-test workflow"
+  default_prompt: "Run adversarial test-gap analysis for this project and propose or add focused regression tests."
+
+policy:
+  allow_implicit_invocation: false
