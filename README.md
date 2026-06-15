@@ -7,6 +7,7 @@ Custom Claude Code skills for personal use.
 | Skill | Description |
 |-------|-------------|
 | `testing` | Adversarial test-gap analysis and focused regression-test workflow |
+| `teaching-deep-understanding` | Teach a change or session for genuine, incremental understanding — mastery-gated, Socratic, with a dark-HTML understanding checklist |
 
 ## Usage
 

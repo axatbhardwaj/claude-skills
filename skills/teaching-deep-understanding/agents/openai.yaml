@@ -1,0 +1,4 @@
+interface:
+  display_name: "Teaching Deep Understanding"
+  short_description: "Teach a change or session for genuine, incremental understanding"
+  default_prompt: "Use $teaching-deep-understanding to teach me what we just did so I deeply understand it — one stage at a time, checking my understanding before moving on."
