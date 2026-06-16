@@ -20,14 +20,14 @@ This skill layers repo-specific convention on top of generic worktree discipline
    - relevant `git branch --list ...`
 3. Gather context before creating anything:
    - PR review: fetch/read the GitHub PR metadata and PR head.
-   - Monday.com item: from the item URL (`https://<org>.monday.com/boards/<boardId>/pulses/<pulseId>`) take the pulse/item ID for naming and the board ID for context. Read the item via the Monday.com MCP (`mcp__claude_ai_monday_com__*`, e.g. `all_monday_api` with GraphQL `items(ids:[<pulseId>])`): name, status, parent/subitems, and any requested base branch. Monday has no git-branch field — derive the branch from the convention below.
+   - Monday.com item: from the item URL (`https://<org>.monday.com/boards/<boardId>/pulses/<pulseId>`) take the pulse ID (to fetch the item) and board ID. Read the item via the Monday.com MCP (`mcp__claude_ai_monday_com__*`, e.g. `all_monday_api` with GraphQL `items(ids:[<pulseId>]){ name column_values { id text } }`) and pull its **EDEF/TDEF/STDEF item key** from the custom-key column (Epic→EDEF, Task→TDEF, Sub-task→STDEF), plus name, status, parent/subitems, and any requested base branch. That key — not the pulse ID — is what worktrees are named after (below). If the key column shows a bare number instead of an `EDEF/TDEF/STDEF-<n>` key, the board's Item-ID column hasn't been switched from ID-number to Custom-key in the UI — flag that rather than naming with the raw pulse ID. Monday has no git-branch field — derive the branch from the convention below.
    - Multi-PR review: fetch each PR head into `refs/remotes/origin/pr/<num>`.
 4. Choose names using local convention:
    - Single PR review path: `/home/xzat/defi/monorepo-pr-<num>-review`
    - Multi-PR review path: `/home/xzat/defi/monorepo-prs-<nums>-review`
-   - Monday item path: `/home/xzat/defi/monorepo-mon-<pulseId>` (pulse/item ID from the item URL, e.g. `monorepo-mon-2995186593`)
+   - Monday item path: `/home/xzat/defi/monorepo-<key>` — `<key>` is the lowercased EDEF/TDEF/STDEF item key (e.g. `monorepo-edef-12`, `monorepo-tdef-345`, `monorepo-stdef-6789`)
    - PR branch: `review/pr-<num>` or `review/prs-<nums>`
-   - Ticket branch: `feature/mon-<pulseId>` (e.g. `feature/mon-2995186593`)
+   - Ticket branch: `feature/<key>` (e.g. `feature/tdef-345`)
 5. Create the worktree from the requested base:
    - PR review usually starts from the PR head or fresh `origin/dev`, depending on the review goal.
    - Ticket work starts from the ticket branch if it exists, otherwise from the requested base branch.
