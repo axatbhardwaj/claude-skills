@@ -1,0 +1,4 @@
+interface:
+  display_name: "DeFi Worktree Setup"
+  short_description: "Set up defi monorepo worktrees (feature or PR review)"
+  default_prompt: "Use $defi-worktree-setup to set up a defi monorepo worktree for a Monday.com item (feature/ticket) or a PR review."

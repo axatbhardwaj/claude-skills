@@ -1,9 +1,9 @@
 ---
-name: "defi-review-worktree-setup"
-description: "Use when setting up a defi-com monorepo worktree for GitHub PR review, multiple PR review, Monday.com item/ticket work (monday.com pulse/board URL), or branch-based review prep."
+name: "defi-worktree-setup"
+description: "Use when setting up a defi-com monorepo git worktree — for Monday.com item/ticket (feature) work from a monday.com pulse/board URL, for GitHub PR review (single or multiple PRs), or for branch-based prep."
 ---
 
-# DeFi Review Worktree Setup
+# DeFi Worktree Setup
 
 ## Overview
 
