@@ -36,6 +36,10 @@ Then sync skills:
 haoshoku --skills
 ```
 
+This symlinks every skill into both `~/.claude/skills/` (Claude Code) **and**
+`~/.agents/skills/` (Codex), so Haoshoku users get the skills in both agents
+with no manual step.
+
 ### Option 2: Manual Copy for Claude Code
 
 Clone this repo and copy the skills to your Claude config:
@@ -47,17 +51,20 @@ mkdir -p ~/.claude/agents
 cp claude-skills/agents/*.md ~/.claude/agents/
 ```
 
-### Option 3: Manual Symlink for Codex
+### Option 3: Manual Symlink for Codex (non-Haoshoku)
+
+> Only needed if you're **not** using Haoshoku — Option 1's `haoshoku --skills`
+> already symlinks skills into `~/.agents/skills/` for you.
 
 Codex reads Agent Skills from `~/.agents/skills` or `.agents/skills` in a repo.
-Symlink the same skill directory:
+Symlink each skill directory:
 
 ```bash
 mkdir -p ~/.agents/skills
-ln -sfn "$(pwd)/claude-skills/skills/testing" ~/.agents/skills/testing
+ln -sfn "$(pwd)/claude-skills/skills/defi-worktree-setup" ~/.agents/skills/defi-worktree-setup
 ```
 
-The skill includes `agents/openai.yaml` metadata for Codex and Claude-specific
+Each skill includes `agents/openai.yaml` metadata for Codex and Claude-specific
 adapter notes that Codex can ignore.
 
 ## Notes
