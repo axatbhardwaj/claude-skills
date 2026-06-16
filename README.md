@@ -8,6 +8,7 @@ Custom Claude Code skills for personal use.
 |-------|-------------|
 | `testing` | Adversarial test-gap analysis and focused regression-test workflow |
 | `teaching-deep-understanding` | Teach a change or session for genuine, incremental understanding — mastery-gated, Socratic, with a dark-HTML understanding checklist |
+| `defi-worktree-setup` | Set up a defi-com monorepo git worktree for Monday.com item/ticket (feature) work or GitHub PR review — base branch, env copy, deps, bounded baseline, handoff notes |
 
 ## Usage
 
