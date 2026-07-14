@@ -25,8 +25,8 @@ Higher is better on every axis. Codex rows scored 2026-07-14, launch-week (blend
 
 ## Codex tier evidence (GPT-5.5 is retired; the 5.6 tiers replace it everywhere)
 
-- **sol** — opus-class-plus (int 8): tops the Coding Agent Index and Agents' Last Exam, markedly token-efficient per task, but trails fable ~15 pts on SWE-Bench Pro and trails both fable and opus on Toolathlon. Sol is the *escalation* tier for long-horizon agentic work — not a fable/opus replacement for deep multi-file repo surgery or judgment stations. List price equals old 5.5 → quota 7; `max` effort and `ultra` mode (4 parallel agents) multiply burn — reserve for genuinely hard problems.
-- **terra** — sonnet-class but a lot better (int 7): ≈ GPT-5.5 performance at half the list price. Inherits every seat 5.5 held: default bulk implementation, ring plan-review, ring execution. The Lane-1 workhorse.
+- **sol** — opus-class-plus (int 8): tops the Coding Agent Index and Agents' Last Exam, markedly token-efficient per task, but trails fable ~15 pts on SWE-Bench Pro and trails both fable and opus on Toolathlon. Sol is the *escalation* tier for long-horizon agentic work — not a fable/opus replacement for deep multi-file repo surgery or judgment stations. Holds the **ring plan-review** seat (cross-vendor review of fable's plan). List price equals old 5.5 → quota 7; `max` effort and `ultra` mode (4 parallel agents) multiply burn — reserve for genuinely hard problems.
+- **terra** — sonnet-class but a lot better (int 7): ≈ GPT-5.5 performance at half the list price. Inherits the workhorse seats 5.5 held: default bulk implementation, ring execution. The Lane-1 workhorse.
 - **luna** — sonnet-class (int 5): meets the sonnet floor for code; launch evals show it beating terra on terminal/tool-calling benchmarks — good for mechanical bulk, terminal workflows, glue. Hard caveat: long-context recall collapses past ~256K — never a large-codebase or long-document task.
 
 ## Routing rules
@@ -40,9 +40,9 @@ Higher is better on every axis. Codex rows scored 2026-07-14, launch-week (blend
 
 ## Pipeline ring (high-assurance mode only — triggers listed in global CLAUDE.md)
 
-fable plans → terra reviews the plan → terra executes (sol for long-horizon/hard phases; self-check is hygiene, zero review credit) → opus deep-reviews → fable adjudicates review + done-claim against its own plan. Sonnet takes docs/research/bounded support. Nobody reviews their own vendor's work. Fable stations are fixed bookends, never on-request advice (discretionary escalation is unreliable). Chair tiering: fable chairs protocol-source/novel-architecture runs; routine runs chair on opus.
+fable plans → sol reviews the plan → terra executes (sol for long-horizon/hard phases; self-check is hygiene, zero review credit) → opus deep-reviews → fable adjudicates review + done-claim against its own plan. Sonnet takes docs/research/bounded support. Nobody reviews their own vendor's work. Fable stations are fixed bookends, never on-request advice (discretionary escalation is unreliable). Chair tiering: fable chairs protocol-source/novel-architecture runs; routine runs chair on opus.
 
-**Fable dispatch rules:** never auto-dispatch fable subagents — sonnet/opus is the self-directed ladder; exceptions are an explicit human request or the ring's two fixed fable bookends when chairing on a non-fable model. A fable-chaired session never writes code — implementation, tests, and fixes are dispatched, however small; "too small to dispatch" is the rationalization to override. Fable's chair work: decisions, plans, reviews, human-facing artifacts, coordination bookkeeping.
+**Fable dispatch rules:** never auto-dispatch fable subagents — sonnet/opus is the self-directed ladder; exceptions are an explicit human request or the ring's two fixed fable bookends when chairing on a non-fable model. A fable-chaired session never writes code — implementation, tests, and fixes are dispatched, however small; "too small to dispatch" is the rationalization to override. **opus is fable's default extension for that dispatched code work** (sonnet for lighter support). Fable's chair work: decisions, plans, reviews, human-facing artifacts, coordination bookkeeping.
 
 ## Grok lanes (supersedes the 2026-07-09 grok-placement decision)
 
