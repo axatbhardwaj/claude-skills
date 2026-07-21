@@ -1,8 +1,8 @@
 #!/bin/bash
-# PreToolUse hook for the codex-wrapper agent. FAILS CLOSED.
+# PreToolUse hook for the opencode-wrapper agent. FAILS CLOSED.
 # Bash: entire command must match the fixed launcher, read-only git, or
-#       mkdir under /tmp/codex-wrapper — no shell metacharacters anywhere.
-# Write/Edit/MultiEdit/NotebookEdit: only under /tmp/codex-wrapper/ (prompt files).
+#       mkdir under /tmp/opencode-wrapper — no shell metacharacters anywhere.
+# Write/Edit/MultiEdit/NotebookEdit: only under /tmp/opencode-wrapper/ (prompt files).
 # JSON extraction: jq preferred, python3 fallback; neither present => block.
 
 [ -x /usr/bin/base64 ] || { echo "Blocked: trusted base64 unavailable; failing closed." >&2; exit 2; }
@@ -29,7 +29,7 @@ print(d)' "$1" 2>/dev/null
 }
 
 [ -x /usr/bin/jq ] || [ -x /usr/bin/python3 ] || {
-  echo "Blocked: neither jq nor python3 available; codex-wrapper hook fails closed." >&2; exit 2; }
+  echo "Blocked: neither jq nor python3 available; opencode-wrapper hook fails closed." >&2; exit 2; }
 
 valid_input_schema() {
   if [ -x /usr/bin/jq ]; then
@@ -221,8 +221,8 @@ if [ "$TOOL" = "Write" ] || [ "$TOOL" = "Edit" ] || [ "$TOOL" = "MultiEdit" ] ||
   else
     FP=$(extract .tool_input.file_path)
   fi
-  safe_write_target /tmp/codex-wrapper "$FP" && allow "prompt file under /tmp/codex-wrapper"
-  echo "Blocked: codex-wrapper may write only under /tmp/codex-wrapper/. Got: $FP" >&2
+  safe_write_target /tmp/opencode-wrapper "$FP" && allow "prompt file under /tmp/opencode-wrapper"
+  echo "Blocked: opencode-wrapper may write only under /tmp/opencode-wrapper/. Got: $FP" >&2
   exit 2
 fi
 
@@ -233,16 +233,15 @@ CMD=$(extract .tool_input.command)
 # Reject any multi-line command up front: a first line that passes one allowlist branch
 # must not be able to smuggle a second shell command on a later line.
 case "$CMD" in
-  *$'\n'*|*$'\r'*) echo "Blocked: multi-line Bash commands are not allowed by codex-wrapper policy. Got: $CMD" >&2; exit 2 ;;
+  *$'\n'*|*$'\r'*) echo "Blocked: multi-line Bash commands are not allowed by opencode-wrapper policy. Got: $CMD" >&2; exit 2 ;;
 esac
 
 # Every branch consumes the whole string. The shared arg charset excludes ; & | < >
 # $ ` ( ) " ' \ and whitespace tricks before any approved command can execute.
+# NOTE: a bare `opencode` invocation is deliberately NOT allowed — the launcher is the
+# only path to the CLI, so the model allowlist and integrity snapshot cannot be bypassed.
 ARG='[A-Za-z0-9._/~=^@:+-]+'
-# Valueless flags are listed BEFORE the valued group so --resume-from-pointer is matched
-# whole, not shadowed by the --resume alternative. --resume-source is deliberately absent:
-# it is internal to the launcher's own detached self-reinvocation, never wrapper-issued.
-LAUNCHER_ARGS_RE="^( --resume-from-pointer| --detach| --persist| --(mode|model|workspace|prompt-file|effort|tier|wait|wait-seconds|resume) ${ARG})+$"
+LAUNCHER_ARGS_RE="^( --detach| --(mode|model|workspace|prompt-file|variant|session|wait|wait-seconds) ${ARG})+$"
 
 trusted_home_for_uid() {
   local name password entry_uid gid gecos entry_home shell
@@ -266,21 +265,21 @@ safe_launcher_command() {
     *) return 1 ;;
   esac
   case "$launcher" in
-    '~/.claude/agents/run-codex-task.sh'|"$trusted_home/.claude/agents/run-codex-task.sh") ;;
+    '~/.claude/agents/run-opencode-task.sh'|"$trusted_home/.claude/agents/run-opencode-task.sh") ;;
     *) return 1 ;;
   esac
   [[ "$args" =~ $LAUNCHER_ARGS_RE ]]
 }
 
-safe_launcher_command && allow "approved codex launcher"
+safe_launcher_command && allow "approved opencode launcher"
 safe_git_command && safe_git_runtime && allow "read-only git inspection"
 
 case "$CMD" in
   "mkdir -p "*)
     TARGET=${CMD#mkdir -p }
-    [ "$(command -v mkdir 2>/dev/null)" = /usr/bin/mkdir ] && [ -x /usr/bin/mkdir ] && [[ "$TARGET" =~ ^${ARG}$ ]] && within_temp_root /tmp/codex-wrapper "$TARGET" 1 && allow "wrapper temp dir"
+    [ "$(command -v mkdir 2>/dev/null)" = /usr/bin/mkdir ] && [ -x /usr/bin/mkdir ] && [[ "$TARGET" =~ ^${ARG}$ ]] && within_temp_root /tmp/opencode-wrapper "$TARGET" 1 && allow "wrapper temp dir"
     ;;
 esac
 
-echo "Blocked by codex-wrapper policy. Allowed: the run-codex-task.sh launcher, read-only git (rev-parse/status/diff/log/show/ls-files), mkdir under /tmp/codex-wrapper — single commands, no shell metacharacters. Got: $CMD" >&2
+echo "Blocked by opencode-wrapper policy. Allowed: the run-opencode-task.sh launcher, read-only git (rev-parse/status/diff/log/show/ls-files), mkdir under /tmp/opencode-wrapper — single commands, no shell metacharacters. Got: $CMD" >&2
 exit 2
