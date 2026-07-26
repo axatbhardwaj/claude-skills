@@ -41,12 +41,13 @@ Tell the chair to syntax-check by stripping `export `, wrapping the body in
 `async function f(){ ... }`, and running `node --check`. That wrapper is the **only**
 invocation that validates anything.
 
-Bare `node --check` on the raw `.js` file **exits 0 no matter what the file contains**.
-The CommonJS parse aborts at the first `export`/`import` token and Node discards the
-error, so nothing after `export const meta` is ever parsed. Verified on Node v26.4.0:
+Bare `node --check` on the raw `.js` file is **positional**: it exits 0 for any error
+after the first module-syntax token (for example, `export`). The CommonJS parse aborts
+at that token and Node discards the error, so nothing after `export const meta` is ever
+parsed. Verified on Node v26.4.0:
 `export const meta = { a: 1 }` followed by `@@@ ### not javascript (((` exits 0, while
 the same garbage placed *before* the `export` exits 1. Every emitted workflow script
-opens with `export const meta`, so for exactly this file class a pass is **zero
+puts that token on line 1 as `export const meta`, so in practice a pass is **zero
 evidence** — a null check, not a weak one.
 
 Renaming to `.mjs` swings the other way: it parses the whole file but rejects the
@@ -132,10 +133,12 @@ into that station when Claude already follows, as the verify station does in
 the second stage of `pr-review.js`'s review pipeline. Add a dedicated structurer only
 when no Claude station already follows.
 
-A light dispatch names exactly the four chair-owned launcher flags:
-`--mode`, `--model`, `--workspace`, and `--tier`. Do **not** add `--effort`; the
-launcher derives it. Point to CLAUDE.md §6 and `~/.claude/agents/codex-wrapper.md`
-for launcher semantics rather than copying their tables.
+A light dispatch names the chair-owned launcher flags: `--mode`, `--model`,
+`--workspace`, and optionally `--tier`. When the dispatch is meant to continue the
+standing session, it also names the persistence flags `--persist`, `--resume`, and
+`--resume-from-pointer`. Do **not** add `--effort`; the launcher derives it. Point to
+CLAUDE.md §6 and `~/.claude/agents/codex-wrapper.md` for launcher semantics rather
+than copying their tables.
 
 Each Codex brief is self-contained. “Per the plan” and “as discussed” are dead
 references because Codex has no plan. Paste the governing content into the brief.
