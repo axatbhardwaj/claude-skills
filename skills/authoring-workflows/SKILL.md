@@ -79,6 +79,11 @@ if (typeof a === 'string') {
     )
   }
 }
+if (a === null || typeof a !== 'object' || Array.isArray(a)) {
+  throw new Error(
+    `args resolved to ${a === null ? 'null' : Array.isArray(a) ? 'an array' : typeof a}, not an object — the harness must pass object-shaped args`,
+  )
+}
 if (!a.today) throw new Error(
   'args.today required (YYYY-MM-DD). Scripts cannot call Date.now(), new Date(), or Math.random() — ' +
   'replay on resume would diverge. The chair passes time and randomness in.',
@@ -185,13 +190,27 @@ Codex lens prompt explains. Say why in a comment.
 
 ### Write parallelism
 
-The launcher's `actual_changes` comes from a tree-wide `git diff` with no pathspec,
-taken at run end; its clean-tree gate runs only at start. That is TOCTOU: concurrent
-implementation dispatches into one tree race rather than serialize and cross-attribute
-each other's writes. Use worktrees or serialization, without exception. Refuse “our
-files don't overlap”: it may be true of the bytes, but it is irrelevant to the
-verification channel—`actual_changes` against declared scope—which catches real
-out-of-scope writes. Routinely false firings train reviewers to discount that channel.
+Parallel write stations still require isolated worktrees or serial execution;
+disjoint file scopes alone are insufficient, but the reason has changed. For
+`--mode implementation`, the launcher takes a per-workspace `flock`. A second
+concurrent dispatch into the same workspace is refused with
+`blocked_concurrent_dispatch` (exit 4) and never runs at all. A fanned-out write
+station that collides on a workspace therefore no longer gets corrupted attribution;
+it loses that unit of work outright unless the chair reads the blocked status and
+redispatches. That is a different failure mode to design around, not a non-issue.
+
+Serial runs must also start clean. The clean-tree precondition is re-checked after
+the lock is acquired, so a prior run's uncommitted output blocks the next dispatch
+with `blocked_dirty_tree` (exit 3).
+
+The lock does not make `actual_changes` trustworthy under concurrency in general.
+It remains a tree-wide `git diff` taken at run end, so any writer the lock does not
+cover—a review-mode (read-only) dispatch running concurrently, the chair writing
+under a §4 carve-out, a human editor, or a build process—is folded into the running
+dispatch's attributed `actual_changes`. Only concurrent implementation dispatches
+into the same workspace are mutually exclusive under the lock; other concurrent
+writers are not covered. Use worktrees or serialization, without exception. Refuse
+“our files don't overlap”: it may be true of the bytes, but it is still insufficient.
 
 ## Control flow
 
@@ -250,7 +269,7 @@ list.
 - [ ] No codex-wrapper station receives `schema`; adjacent Claude extracts and judges.
 - [ ] Every Codex brief is self-contained and has goal, box, prohibitions, constraints, verification, and skill.
 - [ ] Every Codex brief contains the canonical contradiction clause verbatim.
-- [ ] Light dispatches name only the four chair-owned flags and never add `--effort`.
+- [ ] Light dispatches name only the chair-owned flags (`--mode`, `--model`, `--workspace`, optional `--tier`, and—when continuing the standing session—`--persist`, `--resume`, or `--resume-from-pointer`) and never add `--effort`.
 - [ ] Concurrent cold dispatches say why they do not race a standing session.
 - [ ] Same-repo concurrent implementation writes use separate worktrees.
 - [ ] Every `parallel()` has a one-line approved barrier justification.
@@ -262,7 +281,8 @@ list.
 
 - Workflow-tool API signatures belong to the runtime documentation.
 - Launcher modes, tier values, allowlists, effort, and tokens belong to CLAUDE.md §6
-  and `~/.claude/agents/codex-wrapper.md`; this skill names only the four flags.
+  and `~/.claude/agents/codex-wrapper.md`; this skill names the chair-owned flags,
+  including the persistence flags when continuing a standing session.
 - Whether a script is owed and tier routing belong to CLAUDE.md §2/§5.
 - Review-station internals belong to `/home/xzat/.claude/workflows/review-station.js`.
 - Superpowers skill-to-task mapping belongs to CLAUDE.md §6; briefs only name `SKILL:`.
@@ -304,6 +324,14 @@ tree-wide `actual_changes` computed at run end plus a start-time-only clean-tree
 a TOCTOU race. A few seconds' difference in start time would instead have produced
 `blocked_dirty_tree`, so concurrent implementation dispatches into one tree land on a
 coin flip between corrupted attribution and a spurious but loud, safer block.
+
+**VERIFIED by subsequent re-probe against the current launcher:** the per-workspace
+`flock` now holds. A second concurrent implementation dispatch into the same
+workspace is refused with `blocked_concurrent_dispatch` rather than racing, so the
+earlier coin-flip-between-corruption-and-block outcome no longer applies to two
+concurrent implementation dispatches. It may still apply across dispatch modes and
+to review-mode, chair, editor, or build writers that the implementation lock does
+not cover, as described under Write parallelism.
 
 The incomplete skeleton will still anchor authors. Treat its idioms as canonical
 and update them whenever either live drift-check script changes.
