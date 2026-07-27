@@ -185,11 +185,13 @@ Codex lens prompt explains. Say why in a comment.
 
 ### Write parallelism
 
-The launcher snapshots the whole tree, not each station's file list. Therefore the
-disjointness unit is the tree: concurrent implementation dispatches in the same repo
-use worktrees, without exception. “Our files don't overlap” is not sufficient;
-non-overlapping file lists still corrupt attribution when the snapshot unit is the
-repository tree.
+The launcher's `actual_changes` comes from a tree-wide `git diff` with no pathspec,
+taken at run end; its clean-tree gate runs only at start. That is TOCTOU: concurrent
+implementation dispatches into one tree race rather than serialize and cross-attribute
+each other's writes. Use worktrees or serialization, without exception. Refuse “our
+files don't overlap”: it may be true of the bytes, but it is irrelevant to the
+verification channel—`actual_changes` against declared scope—which catches real
+out-of-scope writes. Routinely false firings train reviewers to discount that channel.
 
 ## Control flow
 
@@ -290,11 +292,18 @@ Draw the general lesson from it. Claims about what a *tool* does are cheap to te
 expensive to reason about; two careful readers got this one wrong from first principles
 before anyone ran it. Test tool behaviour, never derive it.
 
-Also taken on trust is the load-bearing strict reading of write parallelism: file-level
-disjointness within one repository still corrupts because the snapshot unit is the
-tree. The rule above uses that reading because it is safe in both worlds, but the
-chair should cheaply probe launcher behavior before this skill ships; the strict
-reading forbids parallelism that a lax implementation might permit.
+Write parallelism is no longer taken on trust; it is settled by experiment. Two Codex
+implementation dispatches ran concurrently in one git repository with disjoint
+declared write scopes, one owning `a.txt` and one owning `b.txt`. The bytes were
+perfect: each file received exactly its owner's line, with no interleaving, so
+file-level disjointness is safe for the writes themselves. But both reports'
+`actual_changes` named both files—bidirectional attribution corruption—and both
+wrapper reports manufactured a scope-violation finding against workers that provably
+stayed in scope: each worker's own session diff contained only its file. The cause is
+tree-wide `actual_changes` computed at run end plus a start-time-only clean-tree gate,
+a TOCTOU race. A few seconds' difference in start time would instead have produced
+`blocked_dirty_tree`, so concurrent implementation dispatches into one tree land on a
+coin flip between corrupted attribution and a spurious but loud, safer block.
 
 The incomplete skeleton will still anchor authors. Treat its idioms as canonical
 and update them whenever either live drift-check script changes.
