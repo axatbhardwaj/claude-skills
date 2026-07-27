@@ -58,6 +58,8 @@ to satisfy the wrong checker.
 ## Skeleton
 
 This is an illustrative, deliberately incomplete skeleton, not a standalone example:
+The harness delivers `args` as a JSON string to top-level `Workflow({name, args})`
+invocations, while nested `workflow()` calls pass a real object, so scripts must tolerate both.
 
 ```js
 export const meta = { // PURE LITERAL: statically extracted before the body runs.
@@ -67,7 +69,16 @@ export const meta = { // PURE LITERAL: statically extracted before the body runs
   phases: [{ title: 'X', detail: 'Build the spine' }],
 } // A variable, call, spread, or template expression here fails parse.
 
-const a = args || {}
+let a = args || {}
+if (typeof a === 'string') {
+  try {
+    a = JSON.parse(a)
+  } catch (e) {
+    throw new Error(
+      `args arrived as a non-JSON string (the harness marshals args to a string): ${e.message}`,
+    )
+  }
+}
 if (!a.today) throw new Error(
   'args.today required (YYYY-MM-DD). Scripts cannot call Date.now(), new Date(), or Math.random() — ' +
   'replay on resume would diverge. The chair passes time and randomness in.',
