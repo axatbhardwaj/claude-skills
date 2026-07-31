@@ -33,6 +33,7 @@
   h3{font:650 1.05rem/1.3 var(--sans);margin:1.4rem 0 .4rem}
   p{max-width:68ch}
   .thesis{font-size:1.18rem;color:var(--dim);max-width:56ch}
+  .source{display:block;margin:.35rem 0 0;font:.72rem/1.5 var(--mono);color:var(--faint)}
   code,.st{font-family:var(--mono);font-size:.85em;background:var(--panel2);border:1px solid var(--line);padding:.08em .4em;border-radius:5px}
   pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem;overflow-x:auto;font:.82rem/1.6 var(--mono)}
   pre code{background:none;border:none;padding:0}
@@ -59,6 +60,7 @@
   nav{position:sticky;top:0;background:rgba(11,15,20,.94);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:.5rem 2.2rem;font:.8rem var(--mono);z-index:9}
   nav a{color:var(--dim);text-decoration:none;margin-right:1.05rem} nav a:hover{color:var(--vadi)}
   header{padding:4.5rem 2.2rem 0;max-width:1120px;margin:0 auto}
+  .orientation{max-width:1120px;margin:4.2rem auto 0;padding:0 2.2rem}
   .foot{margin-top:5rem;border-top:1px solid var(--line);padding-top:1.2rem;font:.75rem var(--mono);color:var(--faint)}
   @media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
 </style>
@@ -75,11 +77,20 @@
     <span class="chip"><!-- hard fact --></span>
   </div>
 </header>
+<!-- Orientation comes before any verdict; the header above states a stance, not orientation. -->
+<section id="orientation" class="orientation" aria-labelledby="orientation-title">
+  <p class="eyebrow"><!-- reader · what they may be assumed to know --></p>
+  <!-- budget: TARGET words / TARGET sections -->
+  <h2 id="orientation-title"><!-- what this is --></h2>
+  <p><!-- what prompted it --></p>
+  <p><!-- what changes depending on the answer --></p>
+</section>
 <main>
 <section id="s1">
   <p class="eyebrow"><!-- section eyebrow --></p>
   <h2><!-- thesis, not topic --></h2>
   <p><!-- prose annotating the figure below --></p>
+  <p class="source"><!-- evidence for the paragraph above --></p>
   <figure>
   <svg viewBox="0 0 1040 160" width="100%" role="img" aria-label="<!-- what it shows -->">
     <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8a97a8"/></marker></defs>
