@@ -13,11 +13,11 @@ restyle from scratch.
 
 Every page IS, in order:
 
-1. `<title>` + the `dvandva-artifact-meta` JSON script block (schema, type, title, date, basis).
+1. `<title>` + the `dvandva-artifact-meta` JSON script block (schema, type, title, date, basis, cold_read).
 2. The `:root` token block from the template, **verbatim** — including the
    literal `color-scheme: dark;` declaration.
-3. An orientation `<section>` immediately after `<header>` and before any
-   verdict section; follow the Content contract.
+3. An orientation `<section>` first in `<main>` and before any verdict section;
+   follow the Content contract.
 4. Sections, each opened by an `.eyebrow` mono label + an `h2` thesis.
 5. At least one `figure` per structural idea: hand-authored SVG + `figcaption`.
    Anything you would sketch on a whiteboard is drawn, not listed.
@@ -49,8 +49,9 @@ greens never share a shape.
 
 `.eyebrow` section label · `.chip` fact strip · `.cards` grid of `.card` ·
 `.lane` (route/option card with colored dot + mono `.route` line) ·
-`figure > svg + figcaption` · `.source` evidence line · sticky `nav` only when
-the page exceeds ~3 screens · `.baton-rail` only on editorial pages (behind
+`figure > svg + figcaption` · `.source` evidence line · `.audience` reader
+declaration · `.verdict` standalone callout · sticky `nav` only when the page
+exceeds ~3 screens · `.baton-rail` only on editorial pages (behind
 `prefers-reduced-motion`).
 
 ## Diagram rules
@@ -73,11 +74,10 @@ insight the drawing can't say. Real content only — never lorem.
 
 ## Content contract
 
-- The orientation section's first line names the reader and what they can be
-  assumed to know. Gloss or cut every term outside that set.
+- The orientation section's `.audience` line names the reader and what they
+  can be assumed to know. Gloss or cut every term outside that set.
 - Its first 150 words state the situation, prompting problem, and what changes
-  with the answer. The header `h1`/`.thesis` are a stance, not orientation, and
-  do not satisfy item 3.
+  with the answer.
 - Lead every paragraph with its claim; support it afterwards. Never open with
   evidence and arrive at the point last.
 - Keep two registers apart. Prose carries the argument. Evidence — file:line
@@ -87,7 +87,8 @@ insight the drawing can't say. Real content only — never lorem.
 - Order sections by the reader's questions: what is this, why now, what is the
   answer, what does it cost, what is still unknown — never by evidence category
   or work order.
-- Every verdict callout or box stands alone: it makes sense when read alone.
+- The answer section carries one `.verdict` block that reads alone, in the
+  polarity its outcome earns — never success green by default.
 - A correction round may not increase prose word count: after ≤ before.
   Put precision in `.source` lines or table cells; cut elsewhere first.
 - Before writing, record target word count and section count in the template's
@@ -96,10 +97,14 @@ insight the drawing can't say. Real content only — never lorem.
 
 ## Verify & publish
 
-- Hand the file alone—no conversation, brief, or summary—to a no-context reader
-  (a subagent given only its path). Ask: (1) what is this about? (2) what is the
-  conclusion and what does it cost? (3) what happens next? Pass only if all
-  three answers are correct; wrong answers are page defects, not the reader's.
+- Cold-read the file alone with a no-context reader asked: (1) what is this
+  about? (2) what is the conclusion and cost? (3) what happens next? Wrong
+  answers are page defects. Record date + score in meta `cold_read`; absent,
+  unreplaced, or non-`3/3` is unpublishable.
+- Count prose: strip tags from every `<p>` carrying no class, then `wc -w`
+  (whitespace-separated tokens; nested `code`/`.st` counts as its text).
+  Append each round's count to the budget comment. It must not exceed the
+  budget or the prior count.
 - If `dvandva` 3.x is installed, `dvandva lint artifacts <file>` must pass.
   Otherwise keep the meta block + `color-scheme: dark;`.
 - For claude.ai Artifacts, strip the doctype/html/head/body skeleton; keep
@@ -107,13 +112,13 @@ insight the drawing can't say. Real content only — never lorem.
 
 ## Common mistakes
 
-| Mistake | Fix |
+| Draft symptom | Fix |
 |---|---|
-| Ad-hoc palette ("looks dark enough") | Tokens verbatim; identity comes from the duel pair |
-| Structure described in bullets | Draw it; prose annotates the figure |
-| One accent color everywhere | Ownership/opposition mapped to `--vadi`/`--prat` |
-| Figures without `figcaption` | Every figure carries its insight line |
-| Page scrolls sideways on mobile | Wide content scrolls inside its own container |
-| Prose written to survive review | Write for the reader; precision goes in the evidence register |
-| Paragraph opens with citations and ends with the claim | Claim first, evidence after |
+| CSS has off-token colors | Tokens verbatim; identity comes from the duel pair |
+| Bullets narrate structure | Draw it; prose annotates the figure |
+| One accent marks every actor | Map ownership to `--vadi`/`--prat` |
+| A figure has no caption | Add its insight line |
+| Mobile page scrolls sideways | Scroll wide content inside its container |
+| Citations interrupt every paragraph | Move precision to the evidence register |
+| The point appears in the last sentence | Lead with the claim |
 | "Looks great, couldn't follow it" | The cold read is not optional |
