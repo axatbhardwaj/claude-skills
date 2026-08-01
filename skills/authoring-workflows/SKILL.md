@@ -274,8 +274,10 @@ breaks. It is a bounded, throwaway investigation with these rules:
 - **Output is evidence, not code.** Its acceptance is an answer with proof, never a
   merged change.
 - **Write scope is scratch only.** It never touches the repository, which makes it
-  parallel-safe by construction because its scope is disjoint from all production
-  work.
+  disjoint from all production work and satisfies the scope prerequisite for
+  concurrency. That alone does not make the dispatch parallel-safe: apply the
+  separate workspace and launcher requirements under Write parallelism before
+  running it concurrently.
 - **Code is discarded.** A spike whose code gets merged has smuggled unreviewed work
   into the tree.
 - **Executor follows probe shape.** A spike is bounded and throwaway; it does not
