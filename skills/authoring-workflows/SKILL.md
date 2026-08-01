@@ -199,48 +199,52 @@ station that collides on a workspace therefore no longer gets corrupted attribut
 it loses that unit of work outright unless the chair reads the blocked status and
 redispatches. That is a different failure mode to design around, not a non-issue.
 
-Serial runs must also start clean. The clean-tree precondition is re-checked after
-the lock is acquired, so a prior run's uncommitted output blocks the next dispatch
-with `blocked_dirty_tree` (exit 3).
+Serial implementation dispatches may start from a dirty tree. After the lock is
+acquired, the launcher fingerprints the pre-run worktree contents and index entries,
+reports that starting state as `pre_existing_dirty_state`, and subtracts unchanged
+baseline paths from `actual_changes`. A stream therefore no longer needs a committed
+baseline before it can be dispatched.
 
-The lock does not make `actual_changes` trustworthy under concurrency in general.
-It remains a tree-wide `git diff` taken at run end, so any writer the lock does not
-cover—a review-mode (read-only) dispatch running concurrently, the chair writing
-under a §4 carve-out, a human editor, or a build process—is folded into the running
-dispatch's attributed `actual_changes`. Only concurrent implementation dispatches
-into the same workspace are mutually exclusive under the lock; other concurrent
-writers are not covered. Use worktrees or serialization, without exception. Refuse
-“our files don't overlap”: it may be true of the bytes, but it is still insufficient.
+The lock and baseline subtraction do not make `actual_changes` trustworthy under
+concurrency in general. Any writer the lock does not cover—a review-mode (read-only)
+dispatch running concurrently, the chair writing under a §4 carve-out, a human
+editor, or a build process—can still be folded into the running dispatch's attributed
+`actual_changes`. Only concurrent implementation dispatches into the same workspace
+are mutually exclusive under the lock; other concurrent writers are not covered.
+Use worktrees or serialization, without exception. Refuse “our files don't overlap”:
+it may be true of the bytes, but it is still insufficient.
 
 ## Executor roster
 
-Treat the Codex executor roster as capacity to spend while designing the graph, not
-as a menu chosen afresh for each station:
+Treat the Codex executor roster as capacity to allocate while designing the graph.
+Choose the lane by task shape:
 
-- **sol** — expensive, slow, and best suited to goal-shaped work, high uncertainty,
-  and every code review.
-- **terra** — less expensive and balanced; use it only for writing bounded changes
-  whose shape is already specified.
-- **luna** — cheapest; reserve it for cheap edits such as single-file edits,
-  codebase scouting, reports, and mappers.
+- **sol** — high-uncertainty implementation and every code review.
+- **terra** — bounded implementation whose shape is already specified.
+- **luna** — read-only scouting, reports, and exploration. Editing and implementation
+  are not currently available to luna.
 
-Name the executor in addition to following [Pin every station](#pin-every-station):
-the roster allocates planning capacity, while station pinning fixes how the dispatch
-runs. Spend that capacity to make the pipeline and fan-out shapes below as useful as
-possible, rather than treating executor choice as an isolated per-task preference.
+This is only the planner's lane-selection view. CLAUDE.md §6 and `codex-wrapper.md`
+are authoritative for the launcher's complete model allowlist, effort tokens, and
+related mechanics.
 
-The binding concurrency ceiling is portable but real. The launcher's flock keys on
-the workspace path, so multiple dispatches into one checkout serialize regardless of
-which executor each uses. Parallel writes need distinct worktrees or the launcher's
-worktree-on-contention option. The Workflow tool also caps concurrent agents; consult
-its runtime documentation for that current limit. This makes the roster a resource
-constraint on the graph, not a choice among labels.
+Name the executor for each Codex station in addition to following the Pin every
+station rule. A reviewer must be able to count planned stations by lane from the
+emitted graph; station pinning fixes how each dispatch runs.
+
+The launcher's workspace-keyed implementation lock is real; this section describes
+its shape without hard-coding a runtime ceiling. A second implementation dispatch
+into the same checkout is refused regardless of which executor it uses. Parallel
+writes need distinct worktrees or the launcher's worktree-on-contention option. The
+Workflow tool also caps concurrent agents; consult its runtime documentation for the
+current limit. This makes the roster a resource constraint on the graph, not a choice
+among labels.
 
 ## Parallelism: scope-driven concurrency
 
 **Two stations may run concurrently only when their write scopes are disjoint.**
 After that scope test, apply the separate workspace and launcher requirements in
-[Write parallelism](#write-parallelism); this section does not weaken them.
+the earlier Write parallelism section; this section does not weaken them.
 
 A plan that serializes independent streams is a defective plan, not a property of
 the work. Plan review already occurs on the relevant tiers, so fan-out is reviewable:
@@ -274,8 +278,9 @@ breaks. It is a bounded, throwaway investigation with these rules:
   work.
 - **Code is discarded.** A spike whose code gets merged has smuggled unreviewed work
   into the tree.
-- **Executor is balanced or cheapest.** A spike is bounded and throwaway; it does
-  not need sol. Use terra for medium probes or luna for single-file checks.
+- **Executor follows probe shape.** A spike is bounded and throwaway; it does not
+  need sol. Use terra when the probe writes scratch; use luna only for read-only
+  scouting, reports, or exploration.
 - **It blocks only its dependents.** A spike blocks the stream that needs its answer,
   not the full plan.
 
@@ -353,7 +358,7 @@ list.
 - [ ] Every failed fan-out member and every filtered or skipped result is logged and returned as coverage gap/debt.
 - [ ] Every spine failure throws instead of degrading.
 - [ ] The review-station tail is present, with truthful `author` and its verdict in the return.
-- [ ] Every station names its executor (sol, terra, or luna).
+- [ ] Claude stations pin `model`, Codex stations name their executor, and workflow stations name the nested workflow.
 - [ ] Every station states its write scope.
 - [ ] Independent streams are actually parallel — a sequential plan over disjoint scopes is a defect.
 - [ ] Spikes write only to scratch, and their output is discarded.
@@ -367,7 +372,7 @@ list.
 - Whether a script is owed and tier routing belong to CLAUDE.md §2/§5.
 - Review-station internals belong to `/home/xzat/.claude/workflows/review-station.js`.
 - Superpowers skill-to-task mapping belongs to CLAUDE.md §6; briefs only name `SKILL:`.
-- Sandbox and clean-tree facts belong to `codex-wrapper.md`; consult them when
+- Sandbox and baseline-attribution facts belong to `codex-wrapper.md`; consult them when
   assigning implementation lanes.
 - Drift-check the skeleton against `/home/xzat/.claude/workflows/pr-review.js` and
   `/home/xzat/.claude/workflows/review-station.js`.
@@ -393,26 +398,16 @@ Draw the general lesson from it. Claims about what a *tool* does are cheap to te
 expensive to reason about; two careful readers got this one wrong from first principles
 before anyone ran it. Test tool behaviour, never derive it.
 
-Write parallelism is no longer taken on trust; it is settled by experiment. Two Codex
-implementation dispatches ran concurrently in one git repository with disjoint
-declared write scopes, one owning `a.txt` and one owning `b.txt`. The bytes were
-perfect: each file received exactly its owner's line, with no interleaving, so
-file-level disjointness is safe for the writes themselves. But both reports'
-`actual_changes` named both files—bidirectional attribution corruption—and both
-wrapper reports manufactured a scope-violation finding against workers that provably
-stayed in scope: each worker's own session diff contained only its file. The cause is
-tree-wide `actual_changes` computed at run end plus a start-time-only clean-tree gate,
-a TOCTOU race. A few seconds' difference in start time would instead have produced
-`blocked_dirty_tree`, so concurrent implementation dispatches into one tree land on a
-coin flip between corrupted attribution and a spurious but loud, safer block.
+Write parallelism is no longer taken on trust; it is settled by experiment. The
+current launcher permits implementation dispatches against a dirty tree, fingerprints
+the pre-run worktree and index state, reports that state separately, and subtracts
+unchanged baseline paths from `actual_changes`. A stream therefore does not need a
+committed baseline before dispatch.
 
-**VERIFIED by subsequent re-probe against the current launcher:** the per-workspace
-`flock` now holds. A second concurrent implementation dispatch into the same
-workspace is refused with `blocked_concurrent_dispatch` rather than racing, so the
-earlier coin-flip-between-corruption-and-block outcome no longer applies to two
-concurrent implementation dispatches. It may still apply across dispatch modes and
-to review-mode, chair, editor, or build writers that the implementation lock does
-not cover, as described under Write parallelism.
+The per-workspace `flock` also holds. A second concurrent implementation dispatch
+into the same workspace is refused with `blocked_concurrent_dispatch` rather than
+racing. Concurrent writers outside that lock may still affect attribution, as
+described under Write parallelism.
 
 The incomplete skeleton will still anchor authors. Treat its idioms as canonical
 and update them whenever either live drift-check script changes.
