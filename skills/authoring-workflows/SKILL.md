@@ -398,6 +398,27 @@ Draw the general lesson from it. Claims about what a *tool* does are cheap to te
 expensive to reason about; two careful readers got this one wrong from first principles
 before anyone ran it. Test tool behaviour, never derive it.
 
+Write parallelism is no longer taken on trust; it is settled by experiment. Two Codex
+implementation dispatches ran concurrently in one git repository with disjoint
+declared write scopes, one owning `a.txt` and one owning `b.txt`. The bytes were
+perfect: each file received exactly its owner's line, with no interleaving, so
+file-level disjointness is safe for the writes themselves. But both reports'
+`actual_changes` named both files—bidirectional attribution corruption—and both
+wrapper reports manufactured a scope-violation finding against workers that provably
+stayed in scope: each worker's own session diff contained only its file. The cause is
+tree-wide `actual_changes` computed at run end plus a start-time-only clean-tree gate,
+a TOCTOU race. A few seconds' difference in start time would instead have produced
+`blocked_dirty_tree`, so concurrent implementation dispatches into one tree land on a
+coin flip between corrupted attribution and a spurious but loud, safer block.
+
+**VERIFIED by subsequent re-probe against the current launcher:** the per-workspace
+`flock` now holds. A second concurrent implementation dispatch into the same
+workspace is refused with `blocked_concurrent_dispatch` rather than racing, so the
+earlier coin-flip-between-corruption-and-block outcome no longer applies to two
+concurrent implementation dispatches. It may still apply across dispatch modes and
+to review-mode, chair, editor, or build writers that the implementation lock does
+not cover, as described under Write parallelism.
+
 Write parallelism is no longer taken on trust; it is settled by experiment. The
 current launcher permits implementation dispatches against a dirty tree, fingerprints
 the pre-run worktree and index state, reports that state separately, and subtracts
