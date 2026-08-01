@@ -212,6 +212,83 @@ into the same workspace are mutually exclusive under the lock; other concurrent
 writers are not covered. Use worktrees or serialization, without exception. Refuse
 “our files don't overlap”: it may be true of the bytes, but it is still insufficient.
 
+## Executor roster
+
+Treat the Codex executor roster as capacity to spend while designing the graph, not
+as a menu chosen afresh for each station:
+
+- **sol** — expensive, slow, and best suited to goal-shaped work, high uncertainty,
+  and every code review.
+- **terra** — less expensive and balanced; use it only for writing bounded changes
+  whose shape is already specified.
+- **luna** — cheapest; reserve it for cheap edits such as single-file edits,
+  codebase scouting, reports, and mappers.
+
+Name the executor in addition to following [Pin every station](#pin-every-station):
+the roster allocates planning capacity, while station pinning fixes how the dispatch
+runs. Spend that capacity to make the pipeline and fan-out shapes below as useful as
+possible, rather than treating executor choice as an isolated per-task preference.
+
+The binding concurrency ceiling is portable but real. The launcher's flock keys on
+the workspace path, so multiple dispatches into one checkout serialize regardless of
+which executor each uses. Parallel writes need distinct worktrees or the launcher's
+worktree-on-contention option. The Workflow tool also caps concurrent agents; consult
+its runtime documentation for that current limit. This makes the roster a resource
+constraint on the graph, not a choice among labels.
+
+## Parallelism: scope-driven concurrency
+
+**Two stations may run concurrently only when their write scopes are disjoint.**
+After that scope test, apply the separate workspace and launcher requirements in
+[Write parallelism](#write-parallelism); this section does not weaken them.
+
+A plan that serializes independent streams is a defective plan, not a property of
+the work. Plan review already occurs on the relevant tiers, so fan-out is reviewable:
+a reviewer may reject a sequential plan when its declared write scopes are disjoint.
+
+For example:
+
+> Station A writes `src/account.js` and tests `tests/account.test.js`.
+> Station B writes `src/wallet.js` and tests `tests/wallet.test.js`.
+> These scopes are disjoint, so they may run in parallel.
+>
+> But Station C writes `tests/` for all test fixtures. Stations A and B also write
+> test files under `tests/`, so A–C and B–C collide even though A and B do not. The
+> fact that their production files are disjoint is insufficient.
+
+A shared test directory is itself a collision until the plan narrows the scope to
+specific files. Do that narrowing before using the pipeline or a fan-out to express
+the resulting independent streams.
+
+## Feasibility spikes
+
+A feasibility spike is a fourth move available to the planner when reading cannot
+settle a premise: whether a file can be replaced safely while in use, whether an
+interface accepts a given shape, or whether a guard fires when the thing it guards
+breaks. It is a bounded, throwaway investigation with these rules:
+
+- **Output is evidence, not code.** Its acceptance is an answer with proof, never a
+  merged change.
+- **Write scope is scratch only.** It never touches the repository, which makes it
+  parallel-safe by construction because its scope is disjoint from all production
+  work.
+- **Code is discarded.** A spike whose code gets merged has smuggled unreviewed work
+  into the tree.
+- **Executor is balanced or cheapest.** A spike is bounded and throwaway; it does
+  not need sol. Use terra for medium probes or luna for single-file checks.
+- **It blocks only its dependents.** A spike blocks the stream that needs its answer,
+  not the full plan.
+
+The plan states in advance what each possible answer changes. A spike whose result
+would not alter the plan is not worth running.
+
+For example, a spike can test whether a test asserts an intermediate value rather
+than the final one. It copies the program under test into scratch, breaks exactly one
+line, and runs the suite against that copy to see whether the failure is detected.
+The pass-or-fail answer determines whether the test needs refactoring; the copied
+program is discarded after the answer. Route only that dependent test stream through
+the result, using the existing control-flow rules for everything else.
+
 ## Control flow
 
 `pipeline()` is the default: each item flows through its stages independently,
@@ -276,6 +353,10 @@ list.
 - [ ] Every failed fan-out member and every filtered or skipped result is logged and returned as coverage gap/debt.
 - [ ] Every spine failure throws instead of degrading.
 - [ ] The review-station tail is present, with truthful `author` and its verdict in the return.
+- [ ] Every station names its executor (sol, terra, or luna).
+- [ ] Every station states its write scope.
+- [ ] Independent streams are actually parallel — a sequential plan over disjoint scopes is a defect.
+- [ ] Spikes write only to scratch, and their output is discarded.
 
 ## Boundaries
 
